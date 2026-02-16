@@ -61,6 +61,11 @@ agent:
 
 gateway:
   replicaCount: 2
+  # Stability-first defaults for large streaming batches.
+  # Increase slowly only after confirming agent RPC latency is healthy.
+  searchTimeoutSec: 25
+  storeTimeoutSec: 35
+  streamConcurrency: 6
   resources:
     requests:
       cpu: "1000m"

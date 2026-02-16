@@ -57,6 +57,12 @@ spec:
               value: {{ .Values.mode.crossMode | quote }}
             - name: AGENTS_LOADBALANCER
               value: {{ printf "%s-agent" (include "crossv9.fullname" .) | quote }}
+            - name: GATEWAY_SEARCH_TIMEOUT_SEC
+              value: {{ .Values.gateway.searchTimeoutSec | quote }}
+            - name: GATEWAY_STORE_TIMEOUT_SEC
+              value: {{ .Values.gateway.storeTimeoutSec | quote }}
+            - name: GATEWAY_STREAM_CONCURRENCY
+              value: {{ .Values.gateway.streamConcurrency | quote }}
           readinessProbe:
             httpGet:
               path: /

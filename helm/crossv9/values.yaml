@@ -74,6 +74,9 @@ agent:
 
 gateway:
   replicaCount: 1
+  searchTimeoutSec: 20
+  storeTimeoutSec: 30
+  streamConcurrency: 8
   resources: {}
 
 cross:
