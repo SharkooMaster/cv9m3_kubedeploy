@@ -63,6 +63,8 @@ spec:
               value: {{ ternary .Values.postgres.user (default "" .Values.externalPostgres.user) .Values.postgres.enabled | quote }}
             - name: DB_PASSWORD
               value: {{ ternary .Values.postgres.password (default "" .Values.externalPostgres.password) .Values.postgres.enabled | quote }}
+            - name: DB_DATABASE
+              value: {{ ternary .Values.postgres.database (default "compressiondb" .Values.externalPostgres.database) .Values.postgres.enabled | quote }}
             - name: MY_POD_IP
               valueFrom:
                 fieldRef:

@@ -28,6 +28,10 @@ postgres:
   enabled: false
 
 externalPostgres:
+  # Matches running postgres pod env:
+  # POSTGRES_DB=yourdbname
+  # POSTGRES_USER=youruser
+  # POSTGRES_PASSWORD=yourpassword
   host: "postgres.postgres.svc.cluster.local"
   port: 5432
   user: "youruser"
