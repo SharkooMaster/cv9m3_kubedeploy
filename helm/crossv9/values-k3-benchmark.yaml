@@ -65,13 +65,13 @@ gateway:
   # Increase slowly only after confirming agent RPC latency is healthy.
   searchTimeoutSec: 25
   storeTimeoutSec: 35
-  streamConcurrency: 8
+  streamConcurrency: 10
   resources:
     requests:
       cpu: "1000m"
       memory: "2Gi"
     limits:
-      cpu: "4000m"
+      cpu: "6000m"
       memory: "8Gi"
 
 cross:
@@ -81,7 +81,7 @@ cross:
       cpu: "1000m"
       memory: "2Gi"
     limits:
-      cpu: "4000m"
+      cpu: "6000m"
       memory: "8Gi"
 
 webinterface:
