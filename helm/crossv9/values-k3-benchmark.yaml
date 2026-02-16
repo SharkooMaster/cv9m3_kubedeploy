@@ -30,9 +30,9 @@ postgres:
 externalPostgres:
   host: "postgres.postgres.svc.cluster.local"
   port: 5432
-  user: "yourdbname"
-  password: "youruser"
-  database: "yourpassword"
+  user: "youruser"
+  password: "yourpassword"
+  database: "yourdbname"
 
 agent:
   workloadKind: DaemonSet
