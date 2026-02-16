@@ -1,8 +1,7 @@
 # CrossV9 tuned baseline for a 5-node k3 cluster.
 # Replace image repositories and secret values before deploy.
 
-imagePullSecrets:
-  - ghcr-pull
+imagePullSecrets: []
 
 images:
   agent:
