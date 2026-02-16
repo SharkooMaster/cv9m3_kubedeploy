@@ -1,0 +1,25 @@
+# EKS-oriented defaults
+mode:
+  crossMode: "local" # keep "local" until DHT routing is made K8s-stable
+
+postgres:
+  enabled: false # use RDS
+
+webinterface:
+  service:
+    type: ClusterIP
+    port: 80
+  ingress:
+    enabled: true
+    className: "alb"
+    annotations:
+      kubernetes.io/ingress.class: alb
+      alb.ingress.kubernetes.io/scheme: internet-facing
+      alb.ingress.kubernetes.io/target-type: ip
+    hosts:
+      - host: "crossv9.example.com"
+        paths:
+          - path: /
+            pathType: Prefix
+
+

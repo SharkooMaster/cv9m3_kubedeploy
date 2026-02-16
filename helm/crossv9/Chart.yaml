@@ -1,0 +1,8 @@
+apiVersion: v2
+name: crossv9
+description: CrossV9 (agent/gateway/cross/webinterface) Helm chart
+type: application
+version: 0.1.0
+appVersion: "0.0.0"
+
+

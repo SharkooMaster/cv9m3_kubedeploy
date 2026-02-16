@@ -1,0 +1,33 @@
+{{- if .Values.webinterface.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "crossv9.fullname" . }}-webinterface
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+  {{- with .Values.webinterface.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.webinterface.ingress.className }}
+  ingressClassName: {{ .Values.webinterface.ingress.className | quote }}
+  {{- end }}
+  rules:
+    {{- range .Values.webinterface.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path | quote }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ include "crossv9.fullname" $ }}-webinterface
+                port:
+                  number: {{ $.Values.webinterface.service.port }}
+          {{- end }}
+    {{- end }}
+{{- end }}
+
+

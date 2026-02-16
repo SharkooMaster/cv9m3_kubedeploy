@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "crossv9.fullname" . }}-gateway
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: grpc
+      port: 5000
+      targetPort: grpc
+    - name: http
+      port: 5001
+      targetPort: http
+  selector:
+    app.kubernetes.io/component: gateway
+    {{- include "crossv9.labels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "crossv9.fullname" . }}-gateway
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.gateway.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: gateway
+      {{- include "crossv9.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: gateway
+        {{- include "crossv9.labels" . | nindent 8 }}
+    spec:
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- range .Values.imagePullSecrets }}
+        - name: {{ . | quote }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: gateway
+          image: "{{ .Values.images.gateway.repository }}:{{ .Values.images.gateway.tag }}"
+          imagePullPolicy: {{ .Values.images.gateway.pullPolicy }}
+          ports:
+            - name: grpc
+              containerPort: 5000
+            - name: http
+              containerPort: 5001
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Development"
+            - name: CROSS_MODE
+              value: {{ .Values.mode.crossMode | quote }}
+            - name: AGENTS_LOADBALANCER
+              value: {{ printf "%s-agent" (include "crossv9.fullname" .) | quote }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          {{- with .Values.gateway.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+

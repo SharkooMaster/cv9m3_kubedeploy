@@ -1,0 +1,17 @@
+# Local cluster defaults (kind/k3d)
+mode:
+  crossMode: "local"
+
+postgres:
+  enabled: true
+  persistence:
+    enabled: false
+
+webinterface:
+  service:
+    type: ClusterIP
+    port: 80
+  ingress:
+    enabled: false
+
+

@@ -1,0 +1,93 @@
+# CrossV9 tuned baseline for a 5-node k3 cluster.
+# Replace image repositories and secret values before deploy.
+
+imagePullSecrets:
+  - ghcr-pull
+
+images:
+  agent:
+    repository: "ghcr.io/sharkoomaster/crossv9-agent:642d0026f17a1d4fd15e41f0dcaa63f738eda3e5"
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  gateway:
+    repository: "ghcr.io/sharkoomaster/crossv9-gateway:7eca2111181d4a53000347f5bc1088911b41ea22"
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  cross:
+    repository: "ghcr.io/sharkoomaster/crossv9-cross:f5fd3d3c61f337ba351954f590d3ee7ea1936e00"
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  webinterface:
+    repository: "ghcr.io/sharkoomaster/crossv9-webinterface:24891902eaddabf3e18363dd657d8b96ee7b4ca2"
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+mode:
+  crossMode: "local"
+
+postgres:
+  enabled: false
+
+externalPostgres:
+  host: "postgres.postgres.svc.cluster.local"
+  port: 5432
+  user: "yourdbname"
+  password: "youruser"
+  database: "yourpassword"
+
+agent:
+  workloadKind: DaemonSet
+  storageBackend: s3
+  s3:
+    endpoint: "http://192.168.50.55:9000"
+    bucket: "chunks"
+    accessKey: "access_key"
+    secretKey: "secret_key"
+    forcePathStyle: true
+    useSsl: false
+  chunkCache:
+    sizeMb: 4096
+    ttlMinutes: 60
+  resources:
+    requests:
+      cpu: "2000m"
+      memory: "4Gi"
+    limits:
+      cpu: "6000m"
+      memory: "12Gi"
+
+gateway:
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "2Gi"
+    limits:
+      cpu: "4000m"
+      memory: "8Gi"
+
+cross:
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "2Gi"
+    limits:
+      cpu: "4000m"
+      memory: "8Gi"
+
+webinterface:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
+  service:
+    type: LoadBalancer
+    port: 80
+  ingress:
+    enabled: false
+

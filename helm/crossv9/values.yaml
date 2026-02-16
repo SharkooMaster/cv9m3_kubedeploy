@@ -1,0 +1,99 @@
+# Default values for crossv9.
+
+global:
+  nameOverride: ""
+  fullnameOverride: ""
+
+imagePullSecrets: []
+
+images:
+  # Set these to your registry for cluster pulls (or load images into kind).
+  agent:
+    repository: "dockerdeploy-agent-1"
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  gateway:
+    repository: "dockerdeploy-gateway"
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  cross:
+    repository: "dockerdeploy-cross"
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  webinterface:
+    repository: "dockerdeploy-webinterface"
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+mode:
+  # IMPORTANT:
+  # - "local" forces services to bypass DHT routing and use service discovery.
+  # - "distributed" enables DHT routing (requires stable agent addressing/bootstrapping).
+  crossMode: "local"
+
+postgres:
+  enabled: true
+  image: "postgres:15-alpine"
+  database: "compressiondb"
+  user: "crossuser"
+  password: "crosspass"
+  port: 5432
+  servicePort: 5432
+  persistence:
+    enabled: false
+    storageClassName: ""
+    size: 10Gi
+
+# Used when postgres.enabled=false (e.g. RDS)
+externalPostgres:
+  host: ""
+  port: 5432
+  user: ""
+  password: ""
+  database: "compressiondb"
+
+agent:
+  workloadKind: Deployment # Deployment or DaemonSet
+  replicaCount: 3
+  resources: {}
+  storageBackend: local # local, s3, gcs
+  s3:
+    endpoint: ""
+    bucket: ""
+    accessKey: ""
+    secretKey: ""
+    forcePathStyle: true
+    useSsl: false
+  chunkCache:
+    sizeMb: 512
+    ttlMinutes: 30
+  persistence:
+    enabled: false
+    storageClassName: ""
+    size: 20Gi
+
+gateway:
+  replicaCount: 1
+  resources: {}
+
+cross:
+  replicaCount: 1
+  resources: {}
+
+webinterface:
+  replicaCount: 1
+  resources: {}
+  service:
+    type: ClusterIP
+    port: 80
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: "crossv9.local"
+        paths:
+          - path: /
+            pathType: Prefix
+
+
