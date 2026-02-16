@@ -40,8 +40,8 @@ agent:
   s3:
     endpoint: "http://192.168.50.55:9000"
     bucket: "chunks"
-    accessKey: "access_key"
-    secretKey: "secret_key"
+    accessKey: "minioadmin"
+    secretKey: "minioadmin"
     forcePathStyle: true
     useSsl: false
   chunkCache:
