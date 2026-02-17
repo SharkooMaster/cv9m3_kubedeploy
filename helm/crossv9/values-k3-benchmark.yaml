@@ -49,7 +49,7 @@ agent:
     forcePathStyle: true
     useSsl: false
   chunkCache:
-    sizeMb: 6144
+    sizeMb: 8192
     ttlMinutes: 60
   resources:
     requests:
@@ -60,28 +60,28 @@ agent:
       memory: "12Gi"
 
 gateway:
-  replicaCount: 3
+  replicaCount: 4
   # Stability-first defaults for large streaming batches.
   # Increase slowly only after confirming agent RPC latency is healthy.
-  searchTimeoutSec: 25
-  storeTimeoutSec: 35
-  streamConcurrency: 10
+  searchTimeoutSec: 30
+  storeTimeoutSec: 45
+  streamConcurrency: 14
   resources:
     requests:
-      cpu: "1000m"
+      cpu: "2000m"
       memory: "2Gi"
     limits:
-      cpu: "6000m"
+      cpu: "8000m"
       memory: "8Gi"
 
 cross:
-  replicaCount: 3
+  replicaCount: 4
   resources:
     requests:
-      cpu: "1000m"
+      cpu: "2000m"
       memory: "2Gi"
     limits:
-      cpu: "6000m"
+      cpu: "8000m"
       memory: "8Gi"
 
 webinterface:
