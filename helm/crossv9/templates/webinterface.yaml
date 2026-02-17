@@ -49,7 +49,7 @@ spec:
             - name: ASPNETCORE_ENVIRONMENT
               value: "Development"
             - name: CrossService__Url
-              value: {{ printf "http://%s-cross:5000" (include "crossv9.fullname" .) | quote }}
+              value: {{ printf "http://%s-cross-headless:5000" (include "crossv9.fullname" .) | quote }}
             - name: Database__Host
               value: {{ ternary (printf "%s-postgres" (include "crossv9.fullname" .)) (default "" .Values.externalPostgres.host) .Values.postgres.enabled | quote }}
             - name: Database__Port
