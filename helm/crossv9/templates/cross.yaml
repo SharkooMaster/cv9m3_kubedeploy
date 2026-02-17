@@ -58,7 +58,7 @@ spec:
             - name: GATEWAY_LOADBALANCER
               value: {{ printf "%s-gateway" (include "crossv9.fullname" .) | quote }}
             - name: AGENTS_LOADBALANCER
-              value: {{ printf "%s-agent" (include "crossv9.fullname" .) | quote }}
+              value: {{ printf "%s-agent-headless" (include "crossv9.fullname" .) | quote }}
           readinessProbe:
             httpGet:
               path: /
