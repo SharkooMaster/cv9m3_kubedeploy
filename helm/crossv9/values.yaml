@@ -81,6 +81,13 @@ gateway:
 
 cross:
   replicaCount: 1
+  service:
+    type: ClusterIP
+    grpcPort: 5000
+    httpPort: 5001
+    loadBalancerIP: ""
+    externalTrafficPolicy: Cluster
+    annotations: {}
   resources: {}
 
 webinterface:

@@ -4,14 +4,24 @@ metadata:
   name: {{ include "crossv9.fullname" . }}-cross
   labels:
     {{- include "crossv9.labels" . | nindent 4 }}
+  {{- with .Values.cross.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
-  type: ClusterIP
+  type: {{ .Values.cross.service.type | default "ClusterIP" }}
+  {{- if and (eq (.Values.cross.service.type | default "ClusterIP") "LoadBalancer") .Values.cross.service.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.cross.service.loadBalancerIP | quote }}
+  {{- end }}
+  {{- if and (eq (.Values.cross.service.type | default "ClusterIP") "LoadBalancer") .Values.cross.service.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ .Values.cross.service.externalTrafficPolicy | quote }}
+  {{- end }}
   ports:
     - name: grpc
-      port: 5000
+      port: {{ .Values.cross.service.grpcPort | default 5000 }}
       targetPort: grpc
     - name: http
-      port: 5001
+      port: {{ .Values.cross.service.httpPort | default 5001 }}
       targetPort: http
   selector:
     app.kubernetes.io/component: cross

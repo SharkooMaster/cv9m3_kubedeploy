@@ -76,6 +76,13 @@ gateway:
 
 cross:
   replicaCount: 4
+  service:
+    type: LoadBalancer
+    grpcPort: 5000
+    httpPort: 5001
+    loadBalancerIP: ""
+    externalTrafficPolicy: Cluster
+    annotations: {}
   resources:
     requests:
       cpu: "2000m"
