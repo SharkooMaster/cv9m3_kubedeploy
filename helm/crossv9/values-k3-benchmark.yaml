@@ -56,7 +56,6 @@ agent:
       cpu: "2000m"
       memory: "4Gi"
     limits:
-      cpu: "6000m"
       memory: "12Gi"
 
 gateway:
@@ -71,7 +70,6 @@ gateway:
       cpu: "2000m"
       memory: "2Gi"
     limits:
-      cpu: "8000m"
       memory: "8Gi"
 
 cross:
@@ -88,7 +86,6 @@ cross:
       cpu: "2000m"
       memory: "2Gi"
     limits:
-      cpu: "8000m"
       memory: "8Gi"
 
 webinterface:
@@ -98,7 +95,6 @@ webinterface:
       cpu: "250m"
       memory: "512Mi"
     limits:
-      cpu: "1000m"
       memory: "2Gi"
   service:
     type: LoadBalancer
@@ -106,3 +102,29 @@ webinterface:
   ingress:
     enabled: false
 
+observability:
+  enabled: true
+  otel:
+    endpoint: "http://crossv9-crossv9-otel-collector:4317"
+  prometheus:
+    image: "prom/prometheus:v2.54.1"
+    retention: "7d"
+    service:
+      type: ClusterIP
+      port: 9090
+  grafana:
+    image: "grafana/grafana:11.1.4"
+    adminUser: "admin"
+    adminPassword: "admin"
+    service:
+      type: LoadBalancer
+      port: 3000
+  tempo:
+    image: "grafana/tempo:2.6.1"
+  pyroscope:
+    image: "grafana/pyroscope:1.12.0"
+    service:
+      type: ClusterIP
+      port: 4040
+  alloy:
+    image: "grafana/alloy:v1.4.2"
