@@ -40,7 +40,10 @@ externalPostgres:
 
 agent:
   workloadKind: DaemonSet
-  storageBackend: s3
+  storageBackend: rocksdb
+  rocksdb:
+    path: "/data/chunks/rocksdb"
+  replicationFactor: 2  # Replicate to 2 other agents (3 total including self)
   s3:
     endpoint: "http://192.168.50.55:9000"
     bucket: "chunks"
@@ -56,6 +59,7 @@ agent:
       cpu: "2000m"
       memory: "4Gi"
     limits:
+      cpu: "6000m"
       memory: "12Gi"
 
 gateway:
@@ -70,6 +74,7 @@ gateway:
       cpu: "2000m"
       memory: "2Gi"
     limits:
+      cpu: "8000m"
       memory: "8Gi"
 
 cross:
@@ -86,6 +91,7 @@ cross:
       cpu: "2000m"
       memory: "2Gi"
     limits:
+      cpu: "8000m"
       memory: "8Gi"
 
 webinterface:
@@ -95,6 +101,7 @@ webinterface:
       cpu: "250m"
       memory: "512Mi"
     limits:
+      cpu: "1000m"
       memory: "2Gi"
   service:
     type: LoadBalancer

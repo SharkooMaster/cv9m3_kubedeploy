@@ -100,6 +100,8 @@ spec:
               value: {{ .Values.observability.otel.endpoint | quote }}
             - name: CHUNK_STORAGE_DIR
               value: "/data/chunks"
+            - name: ROCKSDB_PATH
+              value: {{ .Values.agent.rocksdb.path | quote }}
             - name: STORAGE_BACKEND
               value: {{ .Values.agent.storageBackend | quote }}
             - name: S3_ENDPOINT
@@ -118,6 +120,8 @@ spec:
               value: {{ .Values.agent.chunkCache.sizeMb | quote }}
             - name: CHUNK_CACHE_TTL_MINUTES
               value: {{ .Values.agent.chunkCache.ttlMinutes | quote }}
+            - name: AGENT_REPLICATION_FACTOR
+              value: {{ (default 2 .Values.agent.replicationFactor) | quote }}
           readinessProbe:
             httpGet:
               path: /health

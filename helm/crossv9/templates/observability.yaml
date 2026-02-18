@@ -408,7 +408,7 @@ spec:
             - name: GF_SECURITY_ADMIN_PASSWORD
               value: {{ .Values.observability.grafana.adminPassword | quote }}
             - name: GF_INSTALL_PLUGINS
-              value: "grafana-pyroscope-app,grafana-pyroscope-datasource"
+              value: "grafana-pyroscope-app"
           ports:
             - name: http
               containerPort: 3000

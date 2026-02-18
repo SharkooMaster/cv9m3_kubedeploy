@@ -56,7 +56,9 @@ agent:
   workloadKind: Deployment # Deployment or DaemonSet
   replicaCount: 3
   resources: {}
-  storageBackend: local # local, s3, gcs
+  storageBackend: local # local, s3, gcs, rocksdb
+  rocksdb:
+    path: "/data/chunks/rocksdb"
   s3:
     endpoint: ""
     bucket: ""
