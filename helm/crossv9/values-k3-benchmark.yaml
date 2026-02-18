@@ -63,7 +63,6 @@ agent:
       cpu: "2000m"
       memory: "4Gi"
     limits:
-      cpu: "6000m"
       memory: "12Gi"
 
 gateway:
@@ -78,7 +77,6 @@ gateway:
       cpu: "2000m"
       memory: "2Gi"
     limits:
-      cpu: "8000m"
       memory: "8Gi"
 
 cross:
@@ -95,7 +93,6 @@ cross:
       cpu: "2000m"
       memory: "2Gi"
     limits:
-      cpu: "8000m"
       memory: "8Gi"
 
 webinterface:
