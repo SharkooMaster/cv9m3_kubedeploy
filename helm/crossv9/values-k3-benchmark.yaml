@@ -56,8 +56,9 @@ agent:
     ttlMinutes: 60
   persistence:
     enabled: true
-    storageClassName: "local-path"  # k3s default storage class
-    size: "200Gi"  # 200GB per agent (each node gets one agent via DaemonSet)
+    hostPath: "/var/lib/crossv9/chunks"  # DaemonSet uses hostPath (each node gets its own dir)
+    storageClassName: "local-path"  # only used when workloadKind != DaemonSet
+    size: "200Gi"
   resources:
     requests:
       cpu: "2000m"

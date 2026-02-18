@@ -143,13 +143,17 @@ spec:
           {{- end }}
       volumes:
         - name: chunks
-          {{- if .Values.agent.persistence.enabled }}
+          {{- if and .Values.agent.persistence.enabled (eq (.Values.agent.workloadKind | default "Deployment") "DaemonSet") }}
+          hostPath:
+            path: {{ .Values.agent.persistence.hostPath | default "/var/lib/crossv9/chunks" }}
+            type: DirectoryOrCreate
+          {{- else if .Values.agent.persistence.enabled }}
           persistentVolumeClaim:
             claimName: {{ include "crossv9.fullname" . }}-agent-chunks
           {{- else }}
           emptyDir: {}
           {{- end }}
-{{- if .Values.agent.persistence.enabled }}
+{{- if and .Values.agent.persistence.enabled (ne (.Values.agent.workloadKind | default "Deployment") "DaemonSet") }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
