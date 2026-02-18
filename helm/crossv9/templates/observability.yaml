@@ -436,4 +436,3 @@ spec:
     app.kubernetes.io/component: observability-grafana
     {{- include "crossv9.labels" . | nindent 4 }}
 {{- end }}
-
