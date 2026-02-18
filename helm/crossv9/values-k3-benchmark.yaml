@@ -32,8 +32,8 @@ externalPostgres:
   # POSTGRES_DB=yourdbname
   # POSTGRES_USER=youruser
   # POSTGRES_PASSWORD=yourpassword
-  host: "postgres.postgres.svc.cluster.local"
-  port: 5432
+  host: "pgbouncer.postgres.svc.cluster.local"
+  port: 6432
   user: "youruser"
   password: "yourpassword"
   database: "yourdbname"
