@@ -54,6 +54,10 @@ agent:
   chunkCache:
     sizeMb: 8192
     ttlMinutes: 60
+  persistence:
+    enabled: true
+    storageClassName: "local-path"  # k3s default storage class
+    size: "200Gi"  # 200GB per agent (each node gets one agent via DaemonSet)
   resources:
     requests:
       cpu: "2000m"
