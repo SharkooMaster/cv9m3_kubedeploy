@@ -64,7 +64,7 @@ spec:
       {{- end }}
       containers:
         - name: agent
-          image: "{{ .Values.images.agent.repository }}:{{ .Values.images.agent.tag }}"
+          image: "{{ .Values.images.agent.repository }}{{ if hasPrefix "sha256:" .Values.images.agent.tag }}@{{ else }}:{{ end }}{{ .Values.images.agent.tag }}"
           imagePullPolicy: {{ .Values.images.agent.pullPolicy }}
           ports:
             - name: grpc

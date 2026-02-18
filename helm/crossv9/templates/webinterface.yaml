@@ -40,7 +40,7 @@ spec:
       {{- end }}
       containers:
         - name: webinterface
-          image: "{{ .Values.images.webinterface.repository }}:{{ .Values.images.webinterface.tag }}"
+          image: "{{ .Values.images.webinterface.repository }}{{ if hasPrefix "sha256:" .Values.images.webinterface.tag }}@{{ else }}:{{ end }}{{ .Values.images.webinterface.tag }}"
           imagePullPolicy: {{ .Values.images.webinterface.pullPolicy }}
           ports:
             - name: http

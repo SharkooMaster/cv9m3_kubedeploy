@@ -62,7 +62,7 @@ spec:
       {{- end }}
       containers:
         - name: gateway
-          image: "{{ .Values.images.gateway.repository }}:{{ .Values.images.gateway.tag }}"
+          image: "{{ .Values.images.gateway.repository }}{{ if hasPrefix "sha256:" .Values.images.gateway.tag }}@{{ else }}:{{ end }}{{ .Values.images.gateway.tag }}"
           imagePullPolicy: {{ .Values.images.gateway.pullPolicy }}
           ports:
             - name: grpc

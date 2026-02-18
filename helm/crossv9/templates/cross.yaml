@@ -72,7 +72,7 @@ spec:
       {{- end }}
       containers:
         - name: cross
-          image: "{{ .Values.images.cross.repository }}:{{ .Values.images.cross.tag }}"
+          image: "{{ .Values.images.cross.repository }}{{ if hasPrefix "sha256:" .Values.images.cross.tag }}@{{ else }}:{{ end }}{{ .Values.images.cross.tag }}"
           imagePullPolicy: {{ .Values.images.cross.pullPolicy }}
           ports:
             - name: grpc
