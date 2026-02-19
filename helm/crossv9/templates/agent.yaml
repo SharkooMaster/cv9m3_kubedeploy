@@ -84,6 +84,10 @@ spec:
               value: {{ ternary .Values.postgres.password (default "" .Values.externalPostgres.password) .Values.postgres.enabled | quote }}
             - name: DB_DATABASE
               value: {{ ternary .Values.postgres.database (default "compressiondb" .Values.externalPostgres.database) .Values.postgres.enabled | quote }}
+            - name: REDIS_HOST
+              value: {{ ternary (printf "%s-redis" (include "crossv9.fullname" .)) (default "" .Values.externalRedis.host) .Values.redis.enabled | quote }}
+            - name: REDIS_PORT
+              value: {{ (ternary .Values.redis.port (default 6379 .Values.externalRedis.port) .Values.redis.enabled) | quote }}
             - name: MY_POD_IP
               valueFrom:
                 fieldRef:

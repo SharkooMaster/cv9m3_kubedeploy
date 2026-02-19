@@ -52,6 +52,30 @@ externalPostgres:
   password: ""
   database: "compressiondb"
 
+redis:
+  enabled: true
+  image: "redis:7-alpine"
+  port: 6379
+  servicePort: 6379
+  maxMemory: "2gb"
+  maxMemoryPolicy: "allkeys-lru"
+  persistence:
+    enabled: true
+    storageClassName: ""
+    size: 10Gi
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "2Gi"
+    limits:
+      cpu: "2000m"
+      memory: "4Gi"
+
+# Used when redis.enabled=false (e.g. external Redis)
+externalRedis:
+  host: ""
+  port: 6379
+
 agent:
   workloadKind: Deployment # Deployment or DaemonSet
   replicaCount: 3

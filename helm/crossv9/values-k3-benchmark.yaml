@@ -6,7 +6,7 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    tag: "sha256:a9c3d962b1442f593dffde44b1da1e028f74beba8012863febb3a64c9e3e0cdc"
+    tag: "sha256:76d2e908271a7f82e09475bfe3bbe4aedbe216952b355d0cae815ea6dcff3689"
     pullPolicy: IfNotPresent
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
@@ -37,6 +37,28 @@ externalPostgres:
   user: "youruser"
   password: "yourpassword"
   database: "yourdbname"
+
+redis:
+  enabled: true
+  image: "redis:7-alpine"
+  port: 6379
+  servicePort: 6379
+  maxMemory: "30gb"
+  maxMemoryPolicy: "allkeys-lru"
+  persistence:
+    enabled: true
+    storageClassName: "local-path"
+    size: "200Gi"
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "8Gi"
+    limits:
+      memory: "16Gi"
+
+externalRedis:
+  host: ""
+  port: 6379
 
 agent:
   workloadKind: DaemonSet
