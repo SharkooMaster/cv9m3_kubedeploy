@@ -70,6 +70,8 @@ spec:
             - name: http
               containerPort: 5001
           env:
+            - name: GATEWAY_STREAM_CONCURRENCY
+              value: {{ .Values.gateway.streamConcurrency | default 100 | quote }}
             - name: ASPNETCORE_ENVIRONMENT
               value: "Development"
             - name: MY_POD_NAME
