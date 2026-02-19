@@ -6,7 +6,7 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    tag: "sha256:dd3aeba00dd08838530b8877b9e865e8eb31b4da9867e2b072fb7285a3955ca6"
+    tag: "sha256:6b0bade1a031bcb190089fd32c4e64dcf7ea8ec785751ab939891af73f659324"
     pullPolicy: IfNotPresent
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
@@ -14,12 +14,12 @@ images:
     pullPolicy: IfNotPresent
   cross:
     repository: "ghcr.io/sharkoomaster/crossv9-cross"
-    tag: "sha256:c3ebad23084598b7724b05f9a105292392a58ee09affe140e1e5e71bb1bb134f"
+    tag: "sha256:ee8dd4d2921423c8fefe601e5570272e2a2b47a86f033362397b5db43b17145f"
     pullPolicy: IfNotPresent
   webinterface:
     repository: "ghcr.io/sharkoomaster/crossv9-webinterface"
     tag: "latest"
-    pullPolicy: IfNotPresent
+    pullPolicy: IfNotPresenure
 
 mode:
   crossMode: "local"
@@ -72,7 +72,7 @@ gateway:
   # Increase slowly only after confirming agent RPC latency is healthy.
   searchTimeoutSec: 30
   storeTimeoutSec: 45
-  streamConcurrency: 14
+  streamConcurrency: 32
   resources:
     requests:
       cpu: "2000m"
