@@ -82,6 +82,10 @@ spec:
                   fieldPath: spec.nodeName
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.observability.otel.endpoint | quote }}
+            - name: DOTNET_PerfMapEnabled
+              value: "1"
+            - name: COMPlus_PerfMapEnabled
+              value: "1"
             - name: CROSS_MODE
               value: {{ .Values.mode.crossMode | quote }}
             - name: AGENTS_LOADBALANCER

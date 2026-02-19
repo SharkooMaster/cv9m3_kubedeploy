@@ -1,4 +1,7 @@
 {{- if .Values.observability.enabled }}
+# ════════════════════════════════════════════════════════════════════
+# 1. PROMETHEUS
+# ════════════════════════════════════════════════════════════════════
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -8,21 +11,32 @@ metadata:
 data:
   prometheus.yml: |
     global:
-      scrape_interval: 15s
-      evaluation_interval: 15s
+      scrape_interval: 10s
+      evaluation_interval: 10s
     scrape_configs:
-      - job_name: "crossv9-cross"
-        metrics_path: /metrics
-        static_configs:
-          - targets: ["{{ include "crossv9.fullname" . }}-cross:5001"]
-      - job_name: "crossv9-gateway"
-        metrics_path: /metrics
-        static_configs:
-          - targets: ["{{ include "crossv9.fullname" . }}-gateway:5001"]
+      # ── Multi-pod services: use headless DNS so Prometheus discovers EVERY pod ──
       - job_name: "crossv9-agent"
         metrics_path: /metrics
-        static_configs:
-          - targets: ["{{ include "crossv9.fullname" . }}-agent:5001"]
+        dns_sd_configs:
+          - names:
+              - "{{ include "crossv9.fullname" . }}-agent-headless.{{ .Release.Namespace }}.svc.cluster.local"
+            type: A
+            port: 5001
+      - job_name: "crossv9-gateway"
+        metrics_path: /metrics
+        dns_sd_configs:
+          - names:
+              - "{{ include "crossv9.fullname" . }}-gateway-headless.{{ .Release.Namespace }}.svc.cluster.local"
+            type: A
+            port: 5001
+      - job_name: "crossv9-cross"
+        metrics_path: /metrics
+        dns_sd_configs:
+          - names:
+              - "{{ include "crossv9.fullname" . }}-cross-headless.{{ .Release.Namespace }}.svc.cluster.local"
+            type: A
+            port: 5001
+      # ── Single-instance services: static targets are fine ──
       - job_name: "crossv9-webinterface"
         metrics_path: /metrics
         static_configs:
@@ -57,16 +71,21 @@ spec:
             - "--config.file=/etc/prometheus/prometheus.yml"
             - "--storage.tsdb.path=/prometheus"
             - "--storage.tsdb.retention.time={{ .Values.observability.prometheus.retention }}"
+            - "--web.enable-lifecycle"
           ports:
             - name: http
               containerPort: 9090
           volumeMounts:
             - name: config
               mountPath: /etc/prometheus
+            - name: data
+              mountPath: /prometheus
       volumes:
         - name: config
           configMap:
             name: {{ include "crossv9.fullname" . }}-prometheus-config
+        - name: data
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -84,6 +103,9 @@ spec:
     app.kubernetes.io/component: observability-prometheus
     {{- include "crossv9.labels" . | nindent 4 }}
 ---
+# ════════════════════════════════════════════════════════════════════
+# 2. TEMPO (distributed tracing backend)
+# ════════════════════════════════════════════════════════════════════
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -142,10 +164,14 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /etc/tempo
+            - name: data
+              mountPath: /var/tempo
       volumes:
         - name: config
           configMap:
             name: {{ include "crossv9.fullname" . }}-tempo-config
+        - name: data
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -166,6 +192,9 @@ spec:
     app.kubernetes.io/component: observability-tempo
     {{- include "crossv9.labels" . | nindent 4 }}
 ---
+# ════════════════════════════════════════════════════════════════════
+# 3. OPENTELEMETRY COLLECTOR
+# ════════════════════════════════════════════════════════════════════
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -180,7 +209,9 @@ data:
           grpc:
             endpoint: 0.0.0.0:4317
     processors:
-      batch: {}
+      batch:
+        send_batch_size: 1024
+        timeout: 2s
     exporters:
       otlp/tempo:
         endpoint: {{ include "crossv9.fullname" . }}-tempo:4317
@@ -188,6 +219,7 @@ data:
           insecure: true
       prometheus:
         endpoint: 0.0.0.0:8889
+        namespace: otel
     service:
       pipelines:
         traces:
@@ -254,6 +286,9 @@ spec:
     app.kubernetes.io/component: observability-otel
     {{- include "crossv9.labels" . | nindent 4 }}
 ---
+# ════════════════════════════════════════════════════════════════════
+# 4. PYROSCOPE (continuous profiling backend)
+# ════════════════════════════════════════════════════════════════════
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -281,6 +316,12 @@ spec:
           ports:
             - name: http
               containerPort: 4040
+          volumeMounts:
+            - name: data
+              mountPath: /var/pyroscope
+      volumes:
+        - name: data
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -298,6 +339,43 @@ spec:
     app.kubernetes.io/component: observability-pyroscope
     {{- include "crossv9.labels" . | nindent 4 }}
 ---
+# ════════════════════════════════════════════════════════════════════
+# 5. ALLOY (eBPF profiler → Pyroscope)
+# ════════════════════════════════════════════════════════════════════
+# ── RBAC: Alloy needs to list pods for Kubernetes discovery ──
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "crossv9.fullname" . }}-alloy
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "crossv9.fullname" . }}-alloy
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes"]
+    verbs: ["list", "watch", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "crossv9.fullname" . }}-alloy
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "crossv9.fullname" . }}-alloy
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "crossv9.fullname" . }}-alloy
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -306,13 +384,54 @@ metadata:
     {{- include "crossv9.labels" . | nindent 4 }}
 data:
   config.alloy: |
+    // ── Kubernetes pod discovery ──
+    discovery.kubernetes "pods" {
+      role = "pod"
+    }
+
+    // ── Relabel: keep only crossv9 namespace, add useful labels ──
+    discovery.relabel "crossv9_pods" {
+      targets = discovery.kubernetes.pods.targets
+
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        regex         = "{{ .Release.Namespace }}"
+        action        = "keep"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_component"]
+        target_label  = "service_name"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "pod"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_node_name"]
+        target_label  = "node"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_id"]
+        target_label  = "__container_id__"
+      }
+    }
+
+    // ── eBPF CPU profiler ──
+    pyroscope.ebpf "pods" {
+      forward_to      = [pyroscope.write.default.receiver]
+      targets          = discovery.relabel.crossv9_pods.output
+      demangle         = "none"
+      collect_interval = "15s"
+    }
+
     pyroscope.write "default" {
       endpoint {
         url = "http://{{ include "crossv9.fullname" . }}-pyroscope:4040"
       }
-    }
-    pyroscope.ebpf "pods" {
-      forward_to = [pyroscope.write.default.receiver]
     }
 ---
 apiVersion: apps/v1
@@ -333,13 +452,17 @@ spec:
         app.kubernetes.io/component: observability-alloy
         {{- include "crossv9.labels" . | nindent 8 }}
     spec:
+      serviceAccountName: {{ include "crossv9.fullname" . }}-alloy
       hostPID: true
+      tolerations:
+        - operator: Exists
       containers:
         - name: alloy
           image: {{ .Values.observability.alloy.image | quote }}
           args:
             - "run"
             - "/etc/alloy/config.alloy"
+            - "--stability.level=public-preview"
           securityContext:
             privileged: true
           volumeMounts:
@@ -348,6 +471,9 @@ spec:
             - name: proc
               mountPath: /host/proc
               readOnly: true
+            - name: sys
+              mountPath: /sys
+              readOnly: true
       volumes:
         - name: config
           configMap:
@@ -355,7 +481,14 @@ spec:
         - name: proc
           hostPath:
             path: /proc
+        - name: sys
+          hostPath:
+            path: /sys
 ---
+# ════════════════════════════════════════════════════════════════════
+# 6. GRAFANA
+# ════════════════════════════════════════════════════════════════════
+# ── Datasource provisioning (with explicit UIDs for dashboard refs) ──
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -368,17 +501,204 @@ data:
     datasources:
       - name: Prometheus
         type: prometheus
+        uid: prometheus
         access: proxy
         url: http://{{ include "crossv9.fullname" . }}-prometheus:9090
         isDefault: true
       - name: Tempo
         type: tempo
+        uid: tempo
         access: proxy
         url: http://{{ include "crossv9.fullname" . }}-tempo:3200
       - name: Pyroscope
         type: grafana-pyroscope-datasource
+        uid: pyroscope
         access: proxy
         url: http://{{ include "crossv9.fullname" . }}-pyroscope:4040
+---
+# ── Dashboard provider (tells Grafana where to find JSON files) ──
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "crossv9.fullname" . }}-grafana-dashboard-provider
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: crossv9
+        orgId: 1
+        folder: CrossV9
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards
+---
+# ── Pre-built CrossV9 Overview dashboard ──
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "crossv9.fullname" . }}-grafana-dashboards
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+data:
+  crossv9-overview.json: |
+    {
+      "uid": "crossv9-overview",
+      "title": "CrossV9 Overview",
+      "tags": ["crossv9"],
+      "editable": true,
+      "refresh": "10s",
+      "time": { "from": "now-30m", "to": "now" },
+      "graphTooltip": 1,
+      "schemaVersion": 39,
+      "panels": [
+        {
+          "id": 1, "type": "timeseries",
+          "title": "Agent — Stage Latency P95 (ms)",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{
+            "expr": "histogram_quantile(0.95, sum(rate(crossv9_agent_stage_duration_ms_bucket[1m])) by (le, stage))",
+            "legendFormat": {{ printf "{{stage}}" | quote }},
+            "refId": "A"
+          }],
+          "fieldConfig": { "defaults": { "unit": "ms", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 } }, "overrides": [] }
+        },
+        {
+          "id": 2, "type": "timeseries",
+          "title": "Gateway — Stage Latency P95 (ms)",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{
+            "expr": "histogram_quantile(0.95, sum(rate(crossv9_gateway_stage_duration_ms_bucket[1m])) by (le, stage))",
+            "legendFormat": {{ printf "{{stage}}" | quote }},
+            "refId": "A"
+          }],
+          "fieldConfig": { "defaults": { "unit": "ms", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 } }, "overrides": [] }
+        },
+        {
+          "id": 3, "type": "timeseries",
+          "title": "Agent — Stage Calls / sec",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{
+            "expr": "sum(rate(crossv9_agent_stage_duration_ms_count[1m])) by (stage)",
+            "legendFormat": {{ printf "{{stage}}" | quote }},
+            "refId": "A"
+          }],
+          "fieldConfig": { "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 } }, "overrides": [] }
+        },
+        {
+          "id": 4, "type": "timeseries",
+          "title": "Gateway — Stage Calls / sec",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{
+            "expr": "sum(rate(crossv9_gateway_stage_duration_ms_count[1m])) by (stage)",
+            "legendFormat": {{ printf "{{stage}}" | quote }},
+            "refId": "A"
+          }],
+          "fieldConfig": { "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 } }, "overrides": [] }
+        },
+        {
+          "id": 5, "type": "timeseries",
+          "title": "Agent — Stage Latency P50 / P99",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "histogram_quantile(0.50, sum(rate(crossv9_agent_stage_duration_ms_bucket[1m])) by (le, stage))", "legendFormat": {{ printf "p50 {{stage}}" | quote }}, "refId": "A" },
+            { "expr": "histogram_quantile(0.99, sum(rate(crossv9_agent_stage_duration_ms_bucket[1m])) by (le, stage))", "legendFormat": {{ printf "p99 {{stage}}" | quote }}, "refId": "B" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "ms", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 5 } }, "overrides": [] }
+        },
+        {
+          "id": 6, "type": "timeseries",
+          "title": "Gateway — Stage Latency P50 / P99",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "histogram_quantile(0.50, sum(rate(crossv9_gateway_stage_duration_ms_bucket[1m])) by (le, stage))", "legendFormat": {{ printf "p50 {{stage}}" | quote }}, "refId": "A" },
+            { "expr": "histogram_quantile(0.99, sum(rate(crossv9_gateway_stage_duration_ms_bucket[1m])) by (le, stage))", "legendFormat": {{ printf "p99 {{stage}}" | quote }}, "refId": "B" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "ms", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 5 } }, "overrides": [] }
+        },
+        {
+          "id": 7, "type": "timeseries",
+          "title": ".NET — GC Heap Size",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{
+            "expr": "process_runtime_dotnet_gc_heap_size_bytes",
+            "legendFormat": {{ printf "{{job}} {{instance}}" | quote }},
+            "refId": "A"
+          }],
+          "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 } }, "overrides": [] }
+        },
+        {
+          "id": 8, "type": "timeseries",
+          "title": ".NET — GC Collections / sec",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{
+            "expr": "sum(rate(process_runtime_dotnet_gc_collections_count_total[1m])) by (job)",
+            "legendFormat": {{ printf "{{job}}" | quote }},
+            "refId": "A"
+          }],
+          "fieldConfig": { "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 } }, "overrides": [] }
+        },
+        {
+          "id": 9, "type": "timeseries",
+          "title": ".NET — Thread Pool Threads",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{
+            "expr": "process_runtime_dotnet_thread_pool_threads_count",
+            "legendFormat": {{ printf "{{job}} {{instance}}" | quote }},
+            "refId": "A"
+          }],
+          "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 } }, "overrides": [] }
+        },
+        {
+          "id": 10, "type": "timeseries",
+          "title": ".NET — Thread Pool Queue Length",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{
+            "expr": "process_runtime_dotnet_thread_pool_queue_length",
+            "legendFormat": {{ printf "{{job}} {{instance}}" | quote }},
+            "refId": "A"
+          }],
+          "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 } }, "overrides": [] }
+        },
+        {
+          "id": 11, "type": "timeseries",
+          "title": "gRPC — Request Duration P95 (by service)",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{
+            "expr": "histogram_quantile(0.95, sum(rate(http_server_request_duration_seconds_bucket[1m])) by (le, job))",
+            "legendFormat": {{ printf "{{job}}" | quote }},
+            "refId": "A"
+          }],
+          "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 } }, "overrides": [] }
+        },
+        {
+          "id": 12, "type": "timeseries",
+          "title": "gRPC — Request Rate (by service)",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 40 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{
+            "expr": "sum(rate(http_server_request_duration_seconds_count[1m])) by (job)",
+            "legendFormat": {{ printf "{{job}}" | quote }},
+            "refId": "A"
+          }],
+          "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 } }, "overrides": [] }
+        }
+      ]
+    }
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -415,10 +735,20 @@ spec:
           volumeMounts:
             - name: datasources
               mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
       volumes:
         - name: datasources
           configMap:
             name: {{ include "crossv9.fullname" . }}-grafana-datasources
+        - name: dashboard-provider
+          configMap:
+            name: {{ include "crossv9.fullname" . }}-grafana-dashboard-provider
+        - name: dashboards
+          configMap:
+            name: {{ include "crossv9.fullname" . }}-grafana-dashboards
 ---
 apiVersion: v1
 kind: Service

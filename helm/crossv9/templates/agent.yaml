@@ -98,6 +98,10 @@ spec:
                   fieldPath: spec.nodeName
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.observability.otel.endpoint | quote }}
+            - name: DOTNET_PerfMapEnabled
+              value: "1"
+            - name: COMPlus_PerfMapEnabled
+              value: "1"
             - name: CHUNK_STORAGE_DIR
               value: "/data/chunks"
             - name: ROCKSDB_PATH
