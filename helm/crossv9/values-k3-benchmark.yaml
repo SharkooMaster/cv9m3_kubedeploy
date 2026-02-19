@@ -19,7 +19,7 @@ images:
   webinterface:
     repository: "ghcr.io/sharkoomaster/crossv9-webinterface"
     tag: "latest"
-    pullPolicy: IfNotPresenure
+    pullPolicy: IfNotPresent
 
 mode:
   crossMode: "local"
