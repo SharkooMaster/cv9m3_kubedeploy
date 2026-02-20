@@ -44,7 +44,9 @@ spec:
           command:
             - redis-server
             - --appendonly
-            - "yes"
+            - "no"
+            - --save
+            - ""
             - --maxmemory
             - {{ .Values.redis.maxMemory | quote }}
             - --maxmemory-policy
