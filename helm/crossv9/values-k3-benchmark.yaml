@@ -86,7 +86,6 @@ agent:
       cpu: "4000m"  # Increased CPU allocation per agent
       memory: "8Gi"  # Increased memory for caching and processing
     limits:
-      cpu: "16000m"  # Allow burst to 16 cores per agent pod
       memory: "24Gi"  # More memory for chunk cache and RocksDB
 
 gateway:
@@ -100,7 +99,6 @@ gateway:
       cpu: "4000m"  # Increased CPU allocation
       memory: "4Gi"  # Increased memory
     limits:
-      cpu: "16000m"  # Allow burst to 16 cores per pod
       memory: "16Gi"  # More memory for high-throughput
 
 cross:
@@ -117,7 +115,6 @@ cross:
       cpu: "4000m"  # Increased CPU allocation
       memory: "4Gi"  # Increased memory
     limits:
-      cpu: "16000m"  # Allow burst to 16 cores per pod
       memory: "16Gi"  # More memory for parallel processing
 
 webinterface:
