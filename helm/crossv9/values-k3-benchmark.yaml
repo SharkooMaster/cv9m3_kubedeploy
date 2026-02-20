@@ -6,7 +6,7 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    tag: "sha256:5bfe398958aa836c54d440eebc4d02f104e67cd97da5439ebac1f9ee07d9e146"
+    tag: "sha256:87dd795ca28052a14676566999f61afae0d7dff0c3b765af457ef28847ac843f"
     pullPolicy: IfNotPresent
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
@@ -14,7 +14,7 @@ images:
     pullPolicy: IfNotPresent
   cross:
     repository: "ghcr.io/sharkoomaster/crossv9-cross"
-    tag: "sha256:5b4e4bffce372c15306e95898b2bbbbdd1121ede7d4c5a3cd22ff92f05f3a722"
+    tag: "sha256:cfa2c1d92482fe877196f5757501234a0040f803c3df5904c8cb7fc57266df0c"
     pullPolicy: IfNotPresent
   webinterface:
     repository: "ghcr.io/sharkoomaster/crossv9-webinterface"
@@ -51,7 +51,6 @@ redis:
     size: "200Gi"
   resources:
     requests:
-      cpu: "1000m"
       memory: "8Gi"
     limits:
       memory: "16Gi"
@@ -83,7 +82,6 @@ agent:
     size: "200Gi"
   resources:
     requests:
-      cpu: "4000m"  # Increased CPU allocation per agent
       memory: "8Gi"  # Increased memory for caching and processing
     limits:
       memory: "24Gi"  # More memory for chunk cache and RocksDB
@@ -96,7 +94,6 @@ gateway:
   streamConcurrency: 200  # High concurrency for I/O-bound queries
   resources:
     requests:
-      cpu: "4000m"  # Increased CPU allocation
       memory: "4Gi"  # Increased memory
     limits:
       memory: "16Gi"  # More memory for high-throughput
@@ -112,7 +109,6 @@ cross:
     annotations: {}
   resources:
     requests:
-      cpu: "4000m"  # Increased CPU allocation
       memory: "4Gi"  # Increased memory
     limits:
       memory: "16Gi"  # More memory for parallel processing
