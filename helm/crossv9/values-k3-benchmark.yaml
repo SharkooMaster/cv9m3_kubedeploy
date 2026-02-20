@@ -10,7 +10,7 @@ images:
     pullPolicy: IfNotPresent
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
-    tag: "sha256:ee4d615984acfc1597f50aee614d94bea5ff95c9be6c5387ae09e2961114081f"
+    tag: "sha256:56d9b668b61fd00285ad6741b8c8a858b708ba04f1aeded62a9306767fd9e49b"
     pullPolicy: IfNotPresent
   cross:
     repository: "ghcr.io/sharkoomaster/crossv9-cross"
