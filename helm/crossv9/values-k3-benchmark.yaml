@@ -21,7 +21,7 @@ images:
     tag: "latest"
     pullPolicy: IfNotPresent
 
-chunkSize: 5120  # Bytes per chunk (used by agent, cross, gateway)
+chunkSize: 1024  # Bytes per chunk (used by agent, cross, gateway)
 
 mode:
   crossMode: "local"
@@ -81,7 +81,7 @@ agent:
     enabled: true
     hostPath: "/var/lib/crossv9/chunks"  # DaemonSet uses hostPath (each node gets its own dir)
     storageClassName: "local-path"  # only used when workloadKind != DaemonSet
-    size: "200Gi"
+    size: "400Gi"
   resources:
     requests:
       memory: "8Gi"  # Increased memory for caching and processing
