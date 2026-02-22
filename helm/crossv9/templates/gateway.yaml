@@ -92,6 +92,8 @@ spec:
               value: {{ .Values.mode.crossMode | quote }}
             - name: AGENTS_LOADBALANCER
               value: {{ printf "%s-agent-headless" (include "crossv9.fullname" .) | quote }}
+            - name: CHUNK_SIZE
+              value: {{ .Values.chunkSize | default 5120 | quote }}
             - name: GATEWAY_SEARCH_TIMEOUT_SEC
               value: {{ .Values.gateway.searchTimeoutSec | quote }}
             - name: GATEWAY_STORE_TIMEOUT_SEC

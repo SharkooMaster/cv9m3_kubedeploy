@@ -132,6 +132,8 @@ spec:
               value: {{ (default 2 .Values.agent.replicationFactor) | quote }}
             - name: AGENT_HEADLESS_SVC
               value: "{{ include "crossv9.fullname" . }}-agent-headless.{{ .Release.Namespace }}.svc.cluster.local"
+            - name: CHUNK_SIZE
+              value: {{ .Values.chunkSize | default 5120 | quote }}
           readinessProbe:
             httpGet:
               path: /ready

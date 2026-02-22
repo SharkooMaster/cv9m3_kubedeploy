@@ -102,6 +102,8 @@ spec:
               value: {{ printf "%s-gateway-headless" (include "crossv9.fullname" .) | quote }}
             - name: AGENTS_LOADBALANCER
               value: {{ printf "%s-agent-headless" (include "crossv9.fullname" .) | quote }}
+            - name: CHUNK_SIZE
+              value: {{ .Values.chunkSize | default 5120 | quote }}
           readinessProbe:
             httpGet:
               path: /
