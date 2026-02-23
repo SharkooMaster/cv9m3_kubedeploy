@@ -6,7 +6,7 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    tag: "sha256:1df3a05dd122e0b3c5f997d6636ddcb00fa3f2c4d5dfdd3bd66ba913edc64f1d"
+    tag: "sha256:b3baa865fb365c153696e7cb559dfdb911218a5a2727904ca9608ea8013059c2"
     pullPolicy: IfNotPresent
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
@@ -74,8 +74,11 @@ agent:
     secretKey: "minioadmin"
     forcePathStyle: true
     useSsl: false
+  bucketCache:
+    maxGb: 12            # L1 RAM cap for bucket vectors (search data). Cold buckets on L2 (RocksDB disk).
+    evictionIntervalSec: 10  # How often the LRU evictor runs
   chunkCache:
-    sizeMb: 8192
+    sizeMb: 4096         # LRU cache for chunk bytes (decompression). Separate from bucket cache.
     ttlMinutes: 60
   persistence:
     enabled: true

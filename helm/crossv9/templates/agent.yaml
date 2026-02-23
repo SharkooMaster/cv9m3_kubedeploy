@@ -124,6 +124,10 @@ spec:
               value: {{ .Values.agent.s3.forcePathStyle | quote }}
             - name: S3_USE_SSL
               value: {{ .Values.agent.s3.useSsl | quote }}
+            - name: BUCKET_CACHE_MAX_GB
+              value: {{ (default 12 .Values.agent.bucketCache.maxGb) | quote }}
+            - name: BUCKET_CACHE_EVICTION_SEC
+              value: {{ (default 10 .Values.agent.bucketCache.evictionIntervalSec) | quote }}
             - name: CHUNK_CACHE_SIZE_MB
               value: {{ .Values.agent.chunkCache.sizeMb | quote }}
             - name: CHUNK_CACHE_TTL_MINUTES
