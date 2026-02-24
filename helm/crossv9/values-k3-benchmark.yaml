@@ -106,7 +106,7 @@ gateway:
 cross:
   replicaCount: 4
   windowedThresholdMB: 256    # Files > this use v4.0.0 windowed compression (0 = always monolithic)
-  windowSizeMB: 64            # Window size for v4.0.0 windowed compression
+  windowSizeMB: 16            # Window size for v4.0.0 windowed compression
   maxUploadBytes: "107374182400"  # 100 GiB max upload (windowed handles RAM)
   service:
     type: LoadBalancer
