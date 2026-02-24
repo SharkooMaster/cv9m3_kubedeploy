@@ -75,7 +75,7 @@ agent:
     forcePathStyle: true
     useSsl: false
   bucketCache:
-    maxGb: 12            # L1 RAM cap for bucket vectors (search data). Cold buckets on L2 (RocksDB disk).
+    maxGb: 2            # L1 RAM cap for bucket vectors (search data). Cold buckets on L2 (RocksDB disk).
     evictionIntervalSec: 10  # How often the LRU evictor runs
   chunkCache:
     sizeMb: 4096         # LRU cache for chunk bytes (decompression). Separate from bucket cache.
@@ -88,9 +88,9 @@ agent:
   maxConcurrent: 4  # Max concurrent compress/decompress per Cross pod (prevents OOM)
   resources:
     requests:
-      memory: "8Gi"
+      memory: "4Gi"
     limits:
-      memory: "12Gi"
+      memory: "6Gi"
 
 gateway:
   replicaCount: 4
@@ -100,9 +100,9 @@ gateway:
   streamConcurrency: 200  # High concurrency for I/O-bound queries
   resources:
     requests:
-      memory: "4Gi"
+      memory: "3Gi"
     limits:
-      memory: "12Gi"
+      memory: "4Gi"
 
 cross:
   replicaCount: 4
@@ -120,7 +120,7 @@ cross:
     requests:
       memory: "4Gi"
     limits:
-      memory: "12Gi"
+      memory: "6Gi"
 
 webinterface:
   replicaCount: 1
