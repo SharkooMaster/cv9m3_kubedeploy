@@ -14,7 +14,7 @@ images:
     pullPolicy: IfNotPresent
   cross:
     repository: "ghcr.io/sharkoomaster/crossv9-cross"
-    tag: "sha256:718eb3ab55b250e0a7b4070ad521f512acfc9ad21299a6c00a0cc2c56c2fde86"
+    tag: "sha256:beabc498c16fcc00db4090829fcd6ae442d352bd9cf80b7387b55d4e059c157b"
     pullPolicy: IfNotPresent
   webinterface:
     repository: "ghcr.io/sharkoomaster/crossv9-webinterface"
