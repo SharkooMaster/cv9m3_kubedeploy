@@ -10,11 +10,11 @@ images:
     pullPolicy: IfNotPresent
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
-    tag: "sha256:8f770632c8d7cdf8cef931247f7c7ce48acb81ad5fdd783aee0c0cd476654d76"
+    tag: "sha256:cd45cfc984d135e75a17421725f55e2361c83495e19fb46fc3e7db17e1d4756f"
     pullPolicy: IfNotPresent
   cross:
     repository: "ghcr.io/sharkoomaster/crossv9-cross"
-    tag: "sha256:e255b32f8563df0089db143d0b6aa7bd4bc6b714621e7df71d6f3049ba183a4f"
+    tag: "sha256:e648d03c9a503b12cc2721e8e6e69452d436cba389e80939ffddff800e0b3fca"
     pullPolicy: IfNotPresent
   webinterface:
     repository: "ghcr.io/sharkoomaster/crossv9-webinterface"
@@ -85,11 +85,12 @@ agent:
     hostPath: "/var/lib/crossv9/chunks"  # DaemonSet uses hostPath (each node gets its own dir)
     storageClassName: "local-path"  # only used when workloadKind != DaemonSet
     size: "400Gi"
+  maxConcurrent: 4  # Max concurrent compress/decompress per Cross pod (prevents OOM)
   resources:
     requests:
-      memory: "8Gi"  # Increased memory for caching and processing
+      memory: "8Gi"
     limits:
-      memory: "24Gi"  # More memory for chunk cache and RocksDB
+      memory: "12Gi"
 
 gateway:
   replicaCount: 4
@@ -99,9 +100,9 @@ gateway:
   streamConcurrency: 200  # High concurrency for I/O-bound queries
   resources:
     requests:
-      memory: "4Gi"  # Increased memory
+      memory: "4Gi"
     limits:
-      memory: "16Gi"  # More memory for high-throughput
+      memory: "12Gi"
 
 cross:
   replicaCount: 4
@@ -117,9 +118,9 @@ cross:
     annotations: {}
   resources:
     requests:
-      memory: "4Gi"  # Increased memory
+      memory: "4Gi"
     limits:
-      memory: "16Gi"  # More memory for parallel processing
+      memory: "12Gi"
 
 webinterface:
   replicaCount: 1
