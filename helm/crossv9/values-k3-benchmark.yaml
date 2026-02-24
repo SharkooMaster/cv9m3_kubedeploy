@@ -79,12 +79,12 @@ agent:
     evictionIntervalSec: 10  # How often the LRU evictor runs
   chunkCache:
     sizeMb: 4096         # LRU cache for chunk bytes (decompression). Separate from bucket cache.
-    ttlMinutes: 60
+    ttlMinutes: 5
   persistence:
     enabled: true
     hostPath: "/var/lib/crossv9/chunks"  # DaemonSet uses hostPath (each node gets its own dir)
     storageClassName: "local-path"  # only used when workloadKind != DaemonSet
-    size: "400Gi"
+    size: "200Gi"
   maxConcurrent: 4  # Max concurrent compress/decompress per Cross pod (prevents OOM)
   resources:
     requests:
