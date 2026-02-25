@@ -6,7 +6,7 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    tag: "sha256:b3baa865fb365c153696e7cb559dfdb911218a5a2727904ca9608ea8013059c2"
+    tag: "sha256:038aaad940cc6ee4029074be86223d0d5bb480e9992c2ae57bba533201eb86a7"
     pullPolicy: IfNotPresent
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
@@ -75,22 +75,32 @@ agent:
     forcePathStyle: true
     useSsl: false
   bucketCache:
-    maxGb: 12            # L1 RAM cap for bucket vectors (search data). Cold buckets on L2 (RocksDB disk).
+    maxGb: 0             # 0 = auto-detect: 55% of pod memory (respects cgroup/K8s limits per node)
     evictionIntervalSec: 10  # How often the LRU evictor runs
   chunkCache:
-    sizeMb: 4096         # LRU cache for chunk bytes (decompression). Separate from bucket cache.
+    sizeMb: 0            # 0 = auto-detect: 15% of pod memory (adapts to node RAM automatically)
     ttlMinutes: 5
   persistence:
     enabled: true
     hostPath: "/var/lib/crossv9/chunks"  # DaemonSet uses hostPath (each node gets its own dir)
     storageClassName: "local-path"  # only used when workloadKind != DaemonSet
     size: "200Gi"
-  maxConcurrent: 4  # Max concurrent compress/decompress per Cross pod (prevents OOM)
+  # Resource limits: the agent auto-sizes its caches based on the cgroup limit.
+  # For heterogeneous nodes (16GB/32GB/64GB), you can either:
+  #   1. Set limits to the smallest node size (safe, wastes RAM on big nodes)
+  #   2. Remove limits entirely and let the agent auto-detect physical RAM (maximizes RAM usage)
+  #   3. Use separate DaemonSets with node selectors for per-node sizing
+  # Option 2 is recommended for DaemonSets where the agent is the primary workload:
   resources:
     requests:
-      memory: "8Gi"
+      cpu: "2000m"
+      memory: "4Gi"     # minimum guaranteed
     limits:
-      memory: "12Gi"
+      cpu: "8000m"
+      # No memory limit → agent reads physical RAM from cgroup and auto-sizes.
+      # 16GB node → ~8.8GB bucket cache + ~2.4GB chunk cache + ~4.8GB headroom
+      # 32GB node → ~17.6GB bucket cache + ~4.8GB chunk cache + ~9.6GB headroom
+      # 64GB node → ~35.2GB bucket cache + ~9.6GB chunk cache + ~19.2GB headroom
 
 gateway:
   replicaCount: 4
@@ -100,8 +110,10 @@ gateway:
   streamConcurrency: 200  # High concurrency for I/O-bound queries
   resources:
     requests:
+      cpu: "1000m"
       memory: "4Gi"
     limits:
+      cpu: "4000m"
       memory: "12Gi"
 
 cross:
@@ -109,6 +121,8 @@ cross:
   windowedThresholdMB: 256    # Files > this use v4.0.0 windowed compression (0 = always monolithic)
   windowSizeMB: 16            # Window size for v4.0.0 windowed compression
   maxUploadBytes: "107374182400"  # 100 GiB max upload (windowed handles RAM)
+  maxConcurrent: 4            # Max concurrent compress/decompress per Cross pod (prevents OOM)
+  pipelineParallelism: 4      # Number of parallel pipeline workers for windowed compression
   service:
     type: LoadBalancer
     grpcPort: 5000
@@ -118,9 +132,11 @@ cross:
     annotations: {}
   resources:
     requests:
+      cpu: "2000m"
       memory: "4Gi"
     limits:
-      memory: "12Gi"
+      cpu: "8000m"
+      memory: "16Gi"
 
 webinterface:
   replicaCount: 1
