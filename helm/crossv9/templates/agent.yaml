@@ -128,6 +128,12 @@ spec:
               value: {{ (default 12 .Values.agent.bucketCache.maxGb) | quote }}
             - name: BUCKET_CACHE_EVICTION_SEC
               value: {{ (default 10 .Values.agent.bucketCache.evictionIntervalSec) | quote }}
+            - name: BUCKET_CACHE_HIGH_WATER_PCT
+              value: {{ default "0.90" .Values.agent.bucketCache.highWaterPct | quote }}
+            - name: BUCKET_CACHE_LOW_WATER_PCT
+              value: {{ default "0.75" .Values.agent.bucketCache.lowWaterPct | quote }}
+            - name: BUCKET_CACHE_HARD_CEILING_PCT
+              value: {{ default "0.98" .Values.agent.bucketCache.hardCeilingPct | quote }}
             - name: CHUNK_CACHE_SIZE_MB
               value: {{ .Values.agent.chunkCache.sizeMb | quote }}
             - name: CHUNK_CACHE_TTL_MINUTES

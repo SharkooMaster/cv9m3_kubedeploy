@@ -6,7 +6,7 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    tag: "sha256:976004c29190e93c2138c8074e46cb963b908ec97c89c7e0bfab6e71b77445e6"
+    tag: "sha256:13ce950b27f576b37e648eb4f98e928526e12d2ab896773d9a535e95169fa7a4"
     pullPolicy: IfNotPresent
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
@@ -14,7 +14,7 @@ images:
     pullPolicy: IfNotPresent
   cross:
     repository: "ghcr.io/sharkoomaster/crossv9-cross"
-    tag: "sha256:3610be83e9ba4aecd032609786a61ec0e165fdf827da66ac014968874f324d33"
+    tag: "sha256:5c3f28032f420108515097074853266e9e8e34ab95f68bf204ca7cbf0bb4a103"
     pullPolicy: IfNotPresent
   webinterface:
     repository: "ghcr.io/sharkoomaster/crossv9-webinterface"
@@ -76,7 +76,10 @@ agent:
     useSsl: false
   bucketCache:
     maxGb: 0             # 0 = auto-detect: 55% of pod memory (respects cgroup/K8s limits per node)
-    evictionIntervalSec: 10  # How often the LRU evictor runs
+    evictionIntervalSec: 10  # Kept for API compat, background evictor uses watermarks now
+    highWaterPct: "0.70"     # Background eviction starts when usage > 70% of budget
+    lowWaterPct: "0.50"      # Background eviction stops when usage drops to 50% (20% headroom for bursts)
+    hardCeilingPct: "0.90"   # Emergency inline eviction at 90% — drains back to 50%
   chunkCache:
     sizeMb: 0            # 0 = auto-detect: 15% of pod memory (adapts to node RAM automatically)
     ttlMinutes: 5
