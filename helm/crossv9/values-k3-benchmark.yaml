@@ -127,8 +127,8 @@ cross:
   maxConcurrent: 4            # Max concurrent compress/decompress per Cross pod (prevents OOM)
   pipelineParallelism: 4      # Number of parallel pipeline workers for windowed compression
   mosaicDedup:
-    enabled: "false"          # Level 2 Mosaic Dedup (set "true" to enable)
-    entropyThreshold: "7.0"   # Shannon entropy threshold (bits/byte) for L2 trigger
+    enabled: "true"          # Level 2 Mosaic Dedup (set "true" to enable)
+    entropyThreshold: "4.0"   # Shannon entropy threshold (bits/byte) for L2 trigger
     topK: "10"                # Top-K candidates from agents for mosaic assembly
   service:
     type: LoadBalancer
