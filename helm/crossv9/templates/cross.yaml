@@ -114,6 +114,20 @@ spec:
               value: {{ .Values.cross.maxConcurrent | default 4 | quote }}
             - name: CROSS_PIPELINE_PARALLELISM
               value: {{ .Values.cross.pipelineParallelism | default 4 | quote }}
+            {{- if .Values.cross.mosaicDedup }}
+            {{- if .Values.cross.mosaicDedup.enabled }}
+            - name: ENABLE_MOSAIC_DEDUP
+              value: {{ .Values.cross.mosaicDedup.enabled | quote }}
+            {{- end }}
+            {{- if .Values.cross.mosaicDedup.entropyThreshold }}
+            - name: MOSAIC_ENTROPY_THRESHOLD
+              value: {{ .Values.cross.mosaicDedup.entropyThreshold | quote }}
+            {{- end }}
+            {{- if .Values.cross.mosaicDedup.topK }}
+            - name: MOSAIC_TOP_K
+              value: {{ .Values.cross.mosaicDedup.topK | quote }}
+            {{- end }}
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /

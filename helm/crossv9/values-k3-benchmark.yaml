@@ -6,7 +6,7 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    tag: "sha256:4360a4f1d6913e592d0b831aa648feac59094227467c047c8cd4447d4c69dbc0"
+    tag: "sha256:6d57bf4fbe2c5d19afbf5460a5430ae375ae730954c44860fd43a9357a2adab4"
     pullPolicy: IfNotPresent
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
@@ -14,7 +14,7 @@ images:
     pullPolicy: IfNotPresent
   cross:
     repository: "ghcr.io/sharkoomaster/crossv9-cross"
-    tag: "sha256:c457cf3ae3dfcad096e75ccb60fd4026cc68a41c3540f1cbf620777a40c035de"
+    tag: "sha256:e5b2ec463649314f5acb23daa0bcc9bc31ee579ed0ba5125ffb1aa1e70a1e858"
     pullPolicy: IfNotPresent
   webinterface:
     repository: "ghcr.io/sharkoomaster/crossv9-webinterface"
@@ -126,6 +126,10 @@ cross:
   maxUploadBytes: "107374182400"  # 100 GiB max upload (windowed handles RAM)
   maxConcurrent: 4            # Max concurrent compress/decompress per Cross pod (prevents OOM)
   pipelineParallelism: 4      # Number of parallel pipeline workers for windowed compression
+  mosaicDedup:
+    enabled: "false"          # Level 2 Mosaic Dedup (set "true" to enable)
+    entropyThreshold: "7.0"   # Shannon entropy threshold (bits/byte) for L2 trigger
+    topK: "10"                # Top-K candidates from agents for mosaic assembly
   service:
     type: LoadBalancer
     grpcPort: 5000
