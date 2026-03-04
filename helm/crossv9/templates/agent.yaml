@@ -144,6 +144,20 @@ spec:
               value: "{{ include "crossv9.fullname" . }}-agent-headless.{{ .Release.Namespace }}.svc.cluster.local"
             - name: CHUNK_SIZE
               value: {{ .Values.chunkSize | default 5120 | quote }}
+            {{- if .Values.agent.laneIndex }}
+            {{- if .Values.agent.laneIndex.enabled }}
+            - name: ENABLE_LANE_INDEX
+              value: {{ .Values.agent.laneIndex.enabled | quote }}
+            {{- end }}
+            {{- if .Values.agent.laneIndex.hashBits }}
+            - name: LANE_HASH_BITS
+              value: {{ .Values.agent.laneIndex.hashBits | quote }}
+            {{- end }}
+            {{- if .Values.agent.laneIndex.searchMax }}
+            - name: LANE_SEARCH_MAX
+              value: {{ .Values.agent.laneIndex.searchMax | quote }}
+            {{- end }}
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /ready

@@ -6,7 +6,7 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    tag: "sha256:6a65699a52b602f110d5e05e43858bda4beff6f5bed46838e334a093e62acce2"
+    tag: "sha256:9a514f17e48ae320398989dadff0c62b57ae9b2d3504da6cd5f251ff84c12084"
     pullPolicy: IfNotPresent
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
@@ -14,7 +14,7 @@ images:
     pullPolicy: IfNotPresent
   cross:
     repository: "ghcr.io/sharkoomaster/crossv9-cross"
-    tag: "sha256:2d9b0780a91de56976fad858653a654ed04db4e1ddde204acb52eb9fef5ddfaf"
+    tag: "sha256:e304c5d5ec4ad85015c2897bd25c689eeccdfb478d4d38c8e9b8f4b3a6bf4823"
     pullPolicy: IfNotPresent
   webinterface:
     repository: "ghcr.io/sharkoomaster/crossv9-webinterface"
@@ -83,6 +83,10 @@ agent:
   chunkCache:
     sizeMb: 0            # 0 = auto-detect: 5% of node memory (system guard keeps 10% free via /proc/meminfo)
     ttlMinutes: 5
+  laneIndex:
+    enabled: "true"           # Lane hash index for L2 global sub-chunk search
+    hashBits: "16"            # Mini-LSH bitstring width
+    searchMax: "50"           # Max results per lane query
   persistence:
     enabled: true
     hostPath: "/var/lib/crossv9/chunks"  # DaemonSet uses hostPath (each node gets its own dir)
@@ -130,6 +134,10 @@ cross:
     enabled: "true"          # Level 2 Mosaic Dedup (set "true" to enable)
     entropyThreshold: "4.0"   # Shannon entropy threshold (bits/byte) for L2 trigger
     topK: "10"                # Top-K candidates from agents for mosaic assembly
+  laneSearch:
+    enabled: "true"           # Global lane search for L2 mosaic (requires agent laneIndex)
+    hashBits: "16"            # Must match agent laneIndex.hashBits
+    searchMax: "50"           # Max results per lane query
   service:
     type: LoadBalancer
     grpcPort: 5000

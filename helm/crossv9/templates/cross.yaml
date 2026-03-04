@@ -128,6 +128,20 @@ spec:
               value: {{ .Values.cross.mosaicDedup.topK | quote }}
             {{- end }}
             {{- end }}
+            {{- if .Values.cross.laneSearch }}
+            {{- if .Values.cross.laneSearch.enabled }}
+            - name: ENABLE_LANE_SEARCH
+              value: {{ .Values.cross.laneSearch.enabled | quote }}
+            {{- end }}
+            {{- if .Values.cross.laneSearch.hashBits }}
+            - name: LANE_HASH_BITS
+              value: {{ .Values.cross.laneSearch.hashBits | quote }}
+            {{- end }}
+            {{- if .Values.cross.laneSearch.searchMax }}
+            - name: LANE_SEARCH_MAX
+              value: {{ .Values.cross.laneSearch.searchMax | quote }}
+            {{- end }}
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /
