@@ -42,7 +42,7 @@ spec:
       {{- end }}
       containers:
         - name: benchrunner
-          image: "{{ .Values.images.benchrunner.repository }}:{{ .Values.images.benchrunner.tag }}"
+          image: "{{ .Values.images.benchrunner.repository }}{{ if hasPrefix "sha256:" .Values.images.benchrunner.tag }}@{{ .Values.images.benchrunner.tag }}{{ else }}:{{ .Values.images.benchrunner.tag }}{{ end }}"
           imagePullPolicy: {{ .Values.images.benchrunner.pullPolicy | default "IfNotPresent" }}
           ports:
             - name: grpc
