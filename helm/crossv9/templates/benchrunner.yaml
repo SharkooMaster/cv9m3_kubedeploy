@@ -1,0 +1,55 @@
+{{- if .Values.benchrunner.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "crossv9.fullname" . }}-benchrunner
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.benchrunner.service.type | default "ClusterIP" }}
+  {{- if and (eq (.Values.benchrunner.service.type | default "ClusterIP") "LoadBalancer") .Values.benchrunner.service.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.benchrunner.service.loadBalancerIP | quote }}
+  {{- end }}
+  ports:
+    - name: grpc
+      port: {{ .Values.benchrunner.service.port | default 5050 }}
+      targetPort: grpc
+  selector:
+    app.kubernetes.io/component: benchrunner
+    {{- include "crossv9.labels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "crossv9.fullname" . }}-benchrunner
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.benchrunner.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: benchrunner
+      {{- include "crossv9.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: benchrunner
+        {{- include "crossv9.labels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: benchrunner
+          image: "{{ .Values.images.benchrunner.repository }}:{{ .Values.images.benchrunner.tag }}"
+          imagePullPolicy: {{ .Values.images.benchrunner.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - name: grpc
+              containerPort: 5050
+          env:
+            - name: MAX_FILE_SIZE_GB
+              value: {{ .Values.benchrunner.maxFileSizeGB | default "4" | quote }}
+          resources:
+            {{- toYaml .Values.benchrunner.resources | nindent 12 }}
+{{- end }}

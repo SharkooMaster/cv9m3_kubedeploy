@@ -6,7 +6,7 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    tag: "sha256:9a514f17e48ae320398989dadff0c62b57ae9b2d3504da6cd5f251ff84c12084"
+    tag: "sha256:b9422c86ed712763c13ecfda697a0967fed55e495669b11a0c73b3eeb4bbc701"
     pullPolicy: IfNotPresent
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
@@ -14,11 +14,15 @@ images:
     pullPolicy: IfNotPresent
   cross:
     repository: "ghcr.io/sharkoomaster/crossv9-cross"
-    tag: "sha256:ea5c976b82a9be71a9b541c60125517a482d85714317af7d8d18aa0ce55c93f9"
+    tag: "sha256:d6dca9cfb2e5b73175b0e39e19993b4a851129a5aa7a93b15836774af2d551e9"
     pullPolicy: IfNotPresent
   webinterface:
     repository: "ghcr.io/sharkoomaster/crossv9-webinterface"
     tag: "latest"
+    pullPolicy: IfNotPresent
+  benchrunner:
+    repository: "ghcr.io/sharkoomaster/crossv9-benchrunner"
+    tag: "sha256:3b2b9491eae9d88d80b69beec6039e53101c473172967062595a3387384d7caa"
     pullPolicy: IfNotPresent
 
 chunkSize: 1024  # Bytes per chunk (used by agent, cross, gateway)
@@ -131,11 +135,11 @@ cross:
   maxConcurrent: 4            # Max concurrent compress/decompress per Cross pod (prevents OOM)
   pipelineParallelism: 4      # Number of parallel pipeline workers for windowed compression
   mosaicDedup:
-    enabled: "true"          # Level 2 Mosaic Dedup (set "true" to enable)
+    enabled: "false"          # Level 2 Mosaic Dedup (set "true" to enable)
     entropyThreshold: "4.0"   # Shannon entropy threshold (bits/byte) for L2 trigger
     topK: "10"                # Top-K candidates from agents for mosaic assembly
   laneSearch:
-    enabled: "true"           # Global lane search for L2 mosaic (requires agent laneIndex)
+    enabled: "false"          # Global lane search for L2 mosaic (requires agent laneIndex)
     hashBits: "16"            # Must match agent laneIndex.hashBits
     searchMax: "50"           # Max results per lane query
   service:
@@ -194,3 +198,19 @@ observability:
       port: 4040
   alloy:
     image: "grafana/alloy:v1.4.2"
+
+benchrunner:
+  enabled: true
+  replicaCount: 1
+  maxFileSizeGB: 4
+  service:
+    type: LoadBalancer
+    port: 5050
+    loadBalancerIP: ""
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "2Gi"
+    limits:
+      cpu: "4000m"
+      memory: "8Gi"
