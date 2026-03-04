@@ -6,7 +6,7 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    tag: "sha256:b9422c86ed712763c13ecfda697a0967fed55e495669b11a0c73b3eeb4bbc701"
+    tag: "sha256:1a297b73a445d190f25037436fe74fbb734a669d393f372c214ff653f6822764"
     pullPolicy: IfNotPresent
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
