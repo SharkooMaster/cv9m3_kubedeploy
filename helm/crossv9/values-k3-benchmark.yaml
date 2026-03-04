@@ -84,7 +84,7 @@ agent:
     sizeMb: 0            # 0 = auto-detect: 5% of node memory (system guard keeps 10% free via /proc/meminfo)
     ttlMinutes: 5
   laneIndex:
-    enabled: "true"           # Lane hash index for L2 global sub-chunk search
+    enabled: "false"           # Lane hash index for L2 global sub-chunk search
     hashBits: "16"            # Mini-LSH bitstring width
     searchMax: "50"           # Max results per lane query
   persistence:
