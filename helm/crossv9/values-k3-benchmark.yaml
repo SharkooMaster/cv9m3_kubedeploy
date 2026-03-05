@@ -6,7 +6,7 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    tag: "sha256:9cf866a26ae8dcb27c2a8ba296bd3dcf6fc1734368879e076ad420f28af5cca1"
+    tag: "sha256:6c0102bf5ab0b5e1b26a35410ea7717dbcbb89bc4522f5712b2462cdda0879b1"
     pullPolicy: IfNotPresent
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
@@ -45,7 +45,7 @@ externalPostgres:
   database: "yourdbname"
 
 redis:
-  enabled: true
+  enabled: false
   image: "redis:7-alpine"
   port: 6379
   servicePort: 6379
@@ -95,7 +95,7 @@ agent:
     enabled: true
     hostPath: "/var/lib/crossv9/chunks"  # DaemonSet uses hostPath (each node gets its own dir)
     storageClassName: "local-path"  # only used when workloadKind != DaemonSet
-    size: "200Gi"
+    size: "300Gi"
   # Resource limits: the agent auto-sizes caches (25% bucket + 5% chunk = 30% of node RAM).
   # A system memory guard reads /proc/meminfo every 2 seconds and ensures 10% of node RAM
   # stays free AT ALL TIMES. If free drops below 10%, it nukes chunk cache and evicts
