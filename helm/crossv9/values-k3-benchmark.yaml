@@ -6,7 +6,7 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    tag: "sha256:05961cc67a4bb6f8b9f862743990ca63b5e20cc71455bc8aefcad6894ddfbfa0"
+    tag: "sha256:cf391d9228c8760001c5b5b93427988ba868ae315266db2f11fe0e2fb60b94c3"
     pullPolicy: IfNotPresent
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
@@ -79,7 +79,7 @@ agent:
     forcePathStyle: true
     useSsl: false
   bucketCache:
-    maxGb: 0             # 0 = auto-detect: 25% of node memory (system guard keeps 10% free via /proc/meminfo)
+    maxGb: 0             # 0 = auto-detect: 10% of node memory (cold searches use RocksDB block cache at 25%)
     evictionIntervalSec: 10  # Kept for API compat, background evictor uses watermarks now
     highWaterPct: "0.70"     # Background eviction starts when usage > 70% of budget
     lowWaterPct: "0.50"      # Background eviction stops when usage drops to 50% (20% headroom for bursts)
