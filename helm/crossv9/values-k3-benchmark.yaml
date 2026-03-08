@@ -22,8 +22,8 @@ images:
     pullPolicy: IfNotPresent
   benchrunner:
     repository: "ghcr.io/sharkoomaster/crossv9-benchrunner"
-    tag: "sha256:3b2b9491eae9d88d80b69beec6039e53101c473172967062595a3387384d7caa"
-    pullPolicy: IfNotPresent
+    tag: "sha256:7d98929b6d5f36aca46427b846e8c6e1596ba289a8597f1957014d3d0e97c0e2"
+    pullPolicy: Always
 
 chunkSize: 1024  # Bytes per chunk (used by agent, cross, gateway)
 
