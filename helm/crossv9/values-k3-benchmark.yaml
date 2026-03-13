@@ -1,4 +1,5 @@
-# CrossV9 tuned baseline for a 5-node k3 cluster.
+# CrossV9 tuned for 6-node k3 cluster: 5×32GB + 1×64GB (224GB total).
+# Sized for stability during TB-scale benchmarks — no OOM crashes.
 # Replace image repositories and secret values before deploy.
 
 imagePullSecrets: []
@@ -6,7 +7,7 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    tag: "sha256:cf391d9228c8760001c5b5b93427988ba868ae315266db2f11fe0e2fb60b94c3"
+    tag: "sha256:330be14376d8016b08f8040d93c9eda2d795c87a6be9f78bc52dcd43bae4384e"
     pullPolicy: IfNotPresent
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
@@ -14,7 +15,7 @@ images:
     pullPolicy: IfNotPresent
   cross:
     repository: "ghcr.io/sharkoomaster/crossv9-cross"
-    tag: "sha256:d6dca9cfb2e5b73175b0e39e19993b4a851129a5aa7a93b15836774af2d551e9"
+    tag: "sha256:a619c1d903199f81d843f0c4cd88a6c5953dd1a894fdfd3310d44d05b8495e9d"
     pullPolicy: IfNotPresent
   webinterface:
     repository: "ghcr.io/sharkoomaster/crossv9-webinterface"
@@ -96,44 +97,45 @@ agent:
     hostPath: "/var/lib/crossv9/chunks"  # DaemonSet uses hostPath (each node gets its own dir)
     storageClassName: "local-path"  # only used when workloadKind != DaemonSet
     size: "300Gi"
-  # Resource limits: the agent auto-sizes caches (25% bucket + 5% chunk = 30% of node RAM).
-  # A system memory guard reads /proc/meminfo every 2 seconds and ensures 10% of node RAM
-  # stays free AT ALL TIMES. If free drops below 10%, it nukes chunk cache and evicts
-  # bucket cache aggressively until free >= 15%.
+  # Resource limits: the agent auto-sizes caches based on cgroup memory limit.
+  # With a 14Gi limit, GC.GetGCMemoryInfo().TotalAvailableMemoryBytes sees 14GB,
+  # so caches auto-size to that — NOT the full node RAM.
   #
-  # Expected memory at steady state:
-  #   32GB node → ~5.6GB bucket + ~1.1GB chunk + ~5GB overhead ≈ 12GB total, 20GB free
-  #   64GB node → ~11.2GB bucket + ~2.2GB chunk + ~5GB overhead ≈ 19GB total, 45GB free
+  # Expected memory with 14Gi limit:
+  #   RocksDB bucket block cache: 25% of 14GB = 3.5GB (native)
+  #   RocksDB chunk block cache:  5% of 14GB  = 700MB (native)
+  #   RocksDB memtables: ~512MB (native)
+  #   Bucket cache (managed): 10% = 1.4GB
+  #   Chunk cache (managed):  5%  = 700MB
+  #   Total: ~7GB + overhead → well within 14Gi. Leaves 18GB free on 32GB nodes.
   resources:
     requests:
       cpu: "2000m"
-      memory: "4Gi"     # minimum guaranteed
+      memory: "4Gi"
     limits:
       cpu: "8000m"
-      # No memory limit → agent reads physical RAM and auto-sizes.
-      # Process-level safety valve evicts aggressively if process exceeds 60% of node RAM.
+      memory: "14Gi"
 
 gateway:
-  replicaCount: 4
-  # High-throughput settings for 152 CPU cores and 155GB RAM
+  replicaCount: 2
   searchTimeoutSec: 30
   storeTimeoutSec: 45
-  streamConcurrency: 200  # High concurrency for I/O-bound queries
+  streamConcurrency: 100
   resources:
     requests:
       cpu: "1000m"
-      memory: "4Gi"
+      memory: "2Gi"
     limits:
       cpu: "4000m"
-      memory: "12Gi"
+      memory: "6Gi"
 
 cross:
-  replicaCount: 4
-  windowedThresholdMB: 256    # Files > this use v4.0.0 windowed compression (0 = always monolithic)
-  windowSizeMB: 16            # Window size for v4.0.0 windowed compression
+  replicaCount: 2
+  windowedThresholdMB: 16     # Match client's windowed threshold
+  windowSizeMB: 4             # Match client's 4MB block size
   maxUploadBytes: "107374182400"  # 100 GiB max upload (windowed handles RAM)
-  maxConcurrent: 4            # Max concurrent compress/decompress per Cross pod (prevents OOM)
-  pipelineParallelism: 4      # Number of parallel pipeline workers for windowed compression
+  maxConcurrent: 2            # 4 global blocks ÷ 2 pods = 2 per pod
+  pipelineParallelism: 2      # Match reduced concurrency
   mosaicDedup:
     enabled: "false"          # Level 2 Mosaic Dedup (set "true" to enable)
     entropyThreshold: "4.0"   # Shannon entropy threshold (bits/byte) for L2 trigger
@@ -152,10 +154,10 @@ cross:
   resources:
     requests:
       cpu: "2000m"
-      memory: "4Gi"
+      memory: "2Gi"
     limits:
       cpu: "8000m"
-      memory: "16Gi"
+      memory: "6Gi"
 
 webinterface:
   replicaCount: 1
@@ -210,7 +212,7 @@ benchrunner:
   resources:
     requests:
       cpu: "1000m"
-      memory: "2Gi"
+      memory: "1Gi"
     limits:
       cpu: "4000m"
-      memory: "8Gi"
+      memory: "4Gi"
