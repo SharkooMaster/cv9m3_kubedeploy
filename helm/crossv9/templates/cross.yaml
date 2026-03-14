@@ -96,6 +96,10 @@ spec:
               value: "1"
             - name: COMPlus_PerfMapEnabled
               value: "1"
+            - name: DOTNET_GCConserveMemory
+              value: "9"
+            - name: DOTNET_GCHeapHardLimit
+              value: "0x140000000"
             - name: CROSS_MODE
               value: {{ .Values.mode.crossMode | quote }}
             - name: GATEWAY_LOADBALANCER
