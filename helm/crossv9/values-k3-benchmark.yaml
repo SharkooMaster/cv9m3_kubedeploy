@@ -7,7 +7,7 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    tag: "sha256:6d537205e8c6ad5a3bb1bd8bc1be5d5ee176b086be504dffcfc638f67bb4c582"
+    tag: "sha256:abd4e4e282d171662fe44927eb45981e816b6655177ba32caea29b17d5b118ab"
     pullPolicy: IfNotPresent
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
@@ -15,7 +15,7 @@ images:
     pullPolicy: IfNotPresent
   cross:
     repository: "ghcr.io/sharkoomaster/crossv9-cross"
-    tag: "sha256:1677f932a0b27f724628625c2538814416aaad0134fa677117471a3ece7038ed"
+    tag: "sha256:35014d8c48d35bd189cdfc409653bee52fe6365991587a6fe4061922d33b1218"
     pullPolicy: IfNotPresent
   webinterface:
     repository: "ghcr.io/sharkoomaster/crossv9-webinterface"
@@ -101,19 +101,20 @@ agent:
   # With a 14Gi limit, GC.GetGCMemoryInfo().TotalAvailableMemoryBytes sees 14GB,
   # so caches auto-size to that — NOT the full node RAM.
   #
-  # Expected memory with 14Gi limit:
-  #   RocksDB bucket block cache: 25% of 14GB = 3.5GB (native)
-  #   RocksDB chunk block cache:  5% of 14GB  = 700MB (native)
+  # Expected memory with 14Gi limit (after struct-key optimization):
+  #   RocksDB native block caches: 25% of 14GB = 3.5GB (bucket + chunk)
   #   RocksDB memtables: ~512MB (native)
-  #   Bucket cache (managed): 10% = 1.4GB
-  #   Chunk cache (managed):  5%  = 700MB
-  #   Total: ~7GB + overhead → well within 14Gi. Leaves 18GB free on 32GB nodes.
+  #   Bucket metadata (managed): ~2-3GB (10M+ entries, value-type keys)
+  #   Chunk cache (managed): 5% = 700MB
+  #   .NET runtime overhead: ~500MB
+  #   Total: ~7.2GB + headroom → well within 14Gi. Leaves 18GB free on 32GB nodes.
   resources:
     requests:
       cpu: "2000m"
       memory: "4Gi"
     limits:
       cpu: "8000m"
+      memory: "14Gi"
 
 gateway:
   replicaCount: 2

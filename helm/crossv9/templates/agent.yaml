@@ -108,8 +108,6 @@ spec:
               value: "1"
             - name: DOTNET_GCConserveMemory
               value: "9"
-            - name: DOTNET_GCHeapHardLimit
-              value: "0x200000000"
             - name: CHUNK_STORAGE_DIR
               value: "/data/chunks"
             - name: ROCKSDB_PATH
@@ -129,7 +127,7 @@ spec:
             - name: S3_USE_SSL
               value: {{ .Values.agent.s3.useSsl | quote }}
             - name: BUCKET_CACHE_MAX_GB
-              value: {{ (default 12 .Values.agent.bucketCache.maxGb) | quote }}
+              value: {{ .Values.agent.bucketCache.maxGb | quote }}
             - name: BUCKET_CACHE_EVICTION_SEC
               value: {{ (default 10 .Values.agent.bucketCache.evictionIntervalSec) | quote }}
             - name: BUCKET_CACHE_HIGH_WATER_PCT
