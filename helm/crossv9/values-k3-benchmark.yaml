@@ -7,7 +7,7 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    tag: "sha256:d4c1163af9b06683349284c4c2f05e6c017ef8d1aa0671828133625e59a14ce5"
+    tag: "sha256:4a1f44cd0d7f8300cc7cc7c0049f62e3d219839c870915f0a5587f544beece79"
     pullPolicy: IfNotPresent
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
@@ -114,7 +114,6 @@ agent:
       memory: "4Gi"
     limits:
       cpu: "8000m"
-      memory: "14Gi"
 
 gateway:
   replicaCount: 2
@@ -127,7 +126,6 @@ gateway:
       memory: "2Gi"
     limits:
       cpu: "4000m"
-      memory: "6Gi"
 
 cross:
   replicaCount: 2
@@ -157,7 +155,6 @@ cross:
       memory: "2Gi"
     limits:
       cpu: "8000m"
-      memory: "6Gi"
 
 webinterface:
   replicaCount: 1
