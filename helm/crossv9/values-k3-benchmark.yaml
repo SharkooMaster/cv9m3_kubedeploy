@@ -7,16 +7,16 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    tag: "sha256:262e84e4c95e4fc3a3fdaa3d469a870e65faf0289fed7695d4a8432a4cda7c52"
-    pullPolicy: IfNotPresent
+    tag: "sha256:e754da490ca7d96e0bd021e5e5c2fd67ec6254a85c73125faa141afb5a8bf42a"
+    pullPolicy: Always
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
     tag: "sha256:6a7d54ad17604e156480196738c6a045abc5cc644a5e6b9cb136abb3d7afb6bf"
     pullPolicy: IfNotPresent
   cross:
     repository: "ghcr.io/sharkoomaster/crossv9-cross"
-    tag: "sha256:d98fe55b7d13ed2cb0c2b8e211e892f40d58952871fd52e0b1c909dbfa02f6aa"
-    pullPolicy: IfNotPresent
+    tag: "sha256:c16121821ee80cf44cb2438744ef5ca4252433d0a9299052a8914bc5f73762e0"
+    pullPolicy: Always
   webinterface:
     repository: "ghcr.io/sharkoomaster/crossv9-webinterface"
     tag: "latest"
@@ -134,6 +134,7 @@ cross:
   maxUploadBytes: "107374182400"  # 100 GiB max upload (windowed handles RAM)
   maxConcurrent: 2            # 4 global blocks ÷ 2 pods = 2 per pod
   pipelineParallelism: 2      # Match reduced concurrency
+  searchTopK: 10                  # Top-K candidates from L1 search (multi-reference diagnostics)
   mosaicDedup:
     enabled: "false"          # Level 2 Mosaic Dedup (set "true" to enable)
     entropyThreshold: "4.0"   # Shannon entropy threshold (bits/byte) for L2 trigger
