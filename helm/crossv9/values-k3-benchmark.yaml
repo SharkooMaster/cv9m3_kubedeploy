@@ -15,7 +15,7 @@ images:
     pullPolicy: IfNotPresent
   cross:
     repository: "ghcr.io/sharkoomaster/crossv9-cross"
-    tag: "sha256:34088e2e979964123c040732d8a4bf34d6b3e4c5b673d0f08a9a5b95ddd6da81"
+    tag: "sha256:f62fd65701ad171acc05b1f82da50cdfe4622533da37cd046584278dcf241ffc"
     pullPolicy: Always
   webinterface:
     repository: "ghcr.io/sharkoomaster/crossv9-webinterface"
@@ -154,7 +154,7 @@ cross:
       maxSourcePacksPerCycle: "4"   # More packs per cycle for faster convergence
       maxReadBytesPerCycle: "1073741824"  # 1 GiB read budget per cycle
       maxDurationSec: "90"          # Longer cycles for more throughput
-      maxWorkingSetMb: "8192"       # Explicit ceiling to avoid premature dynamic guard hits
+      maxWorkingSetMb: "0"          # Auto-detect: 85% of container memory (48Gi limit → ~40GB ceiling)
       optimizerParallelism: "0"     # 0 = auto (half of CPU cores, max 8)
     persistence:
       enabled: true
@@ -182,10 +182,10 @@ ccfOptimizer:
   resources:
     requests:
       cpu: "4000m"
-      memory: "8Gi"
-    limits:
-      cpu: "12000m"
       memory: "16Gi"
+    limits:
+      cpu: "16000m"
+      memory: "48Gi"
 
 webinterface:
   replicaCount: 1
