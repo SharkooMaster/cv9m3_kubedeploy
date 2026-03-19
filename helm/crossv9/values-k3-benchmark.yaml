@@ -15,7 +15,7 @@ images:
     pullPolicy: IfNotPresent
   cross:
     repository: "ghcr.io/sharkoomaster/crossv9-cross"
-    tag: "sha256:8c4b1493c1985628be7ebe9f62feac58eb77bb777efb5f026479208be27a54f9"
+    tag: "sha256:f853337aaf7b972141db4429617601944c3f139825c19f8d28838720286848ae"
     pullPolicy: Always
   webinterface:
     repository: "ghcr.io/sharkoomaster/crossv9-webinterface"
@@ -152,9 +152,9 @@ cross:
     globalCompaction:
       enabled: "true"               # Repack unpacked + selected source packs each cycle (budgeted)
       maxSourcePacksPerCycle: "4"   # More packs per cycle for faster convergence
-      maxReadBytesPerCycle: "536870912"  # 512 MiB read budget per cycle
-      maxDurationSec: "45"          # Longer cycles for more throughput
-      maxWorkingSetMb: "0"          # 0 = auto-detect from available system memory
+      maxReadBytesPerCycle: "1073741824"  # 1 GiB read budget per cycle
+      maxDurationSec: "90"          # Longer cycles for more throughput
+      maxWorkingSetMb: "8192"       # Explicit ceiling to avoid premature dynamic guard hits
       optimizerParallelism: "0"     # 0 = auto (half of CPU cores, max 8)
     persistence:
       enabled: true
