@@ -167,6 +167,28 @@ spec:
             - name: CCF_PACK_INTERVAL_SEC
               value: {{ .Values.cross.ccfStore.packIntervalSec | quote }}
             {{- end }}
+            {{- if .Values.cross.ccfStore.globalCompaction }}
+            {{- if .Values.cross.ccfStore.globalCompaction.enabled }}
+            - name: CCF_GLOBAL_COMPACTION_ENABLED
+              value: {{ .Values.cross.ccfStore.globalCompaction.enabled | quote }}
+            {{- end }}
+            {{- if .Values.cross.ccfStore.globalCompaction.maxSourcePacksPerCycle }}
+            - name: CCF_COMPACTION_MAX_SOURCE_PACKS_PER_CYCLE
+              value: {{ .Values.cross.ccfStore.globalCompaction.maxSourcePacksPerCycle | quote }}
+            {{- end }}
+            {{- if .Values.cross.ccfStore.globalCompaction.maxReadBytesPerCycle }}
+            - name: CCF_COMPACTION_MAX_READ_BYTES_PER_CYCLE
+              value: {{ .Values.cross.ccfStore.globalCompaction.maxReadBytesPerCycle | quote }}
+            {{- end }}
+            {{- if .Values.cross.ccfStore.globalCompaction.maxDurationSec }}
+            - name: CCF_COMPACTION_MAX_DURATION_SEC
+              value: {{ .Values.cross.ccfStore.globalCompaction.maxDurationSec | quote }}
+            {{- end }}
+            {{- if .Values.cross.ccfStore.globalCompaction.maxWorkingSetMb }}
+            - name: CCF_COMPACTION_MAX_WORKING_SET_MB
+              value: {{ .Values.cross.ccfStore.globalCompaction.maxWorkingSetMb | quote }}
+            {{- end }}
+            {{- end }}
             {{- end }}
           readinessProbe:
             httpGet:

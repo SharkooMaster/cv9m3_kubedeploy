@@ -15,7 +15,7 @@ images:
     pullPolicy: IfNotPresent
   cross:
     repository: "ghcr.io/sharkoomaster/crossv9-cross"
-    tag: "sha256:578488437f5d4a3bed85da93a09664f863192b0fe710297b0673cb1f84454af0"
+    tag: "sha256:8def12a9dd8a7dcb0a7814c5ff10568a2ed84a82cad09f3b88a03f191091cfd2"
     pullPolicy: Always
   webinterface:
     repository: "ghcr.io/sharkoomaster/crossv9-webinterface"
@@ -148,6 +148,12 @@ cross:
     path: "/data/ccf-store"   # Mount path for CCF storage PVC
     packThreshold: "100"      # Pack CCFs when this many unpacked CCFs accumulate
     packIntervalSec: "30"     # Optimizer check interval (30s for fast dict training during benchmarks)
+    globalCompaction:
+      enabled: "true"               # Repack unpacked + selected source packs each cycle (budgeted)
+      maxSourcePacksPerCycle: "1"   # Keep low to avoid big memory spikes
+      maxReadBytesPerCycle: "268435456"  # 256 MiB read budget per optimizer cycle
+      maxDurationSec: "25"          # Stop load phase quickly under pressure
+      maxWorkingSetMb: "1024"       # Abort load phase if process RSS exceeds this
     persistence:
       enabled: true
       storageClassName: "longhorn"
