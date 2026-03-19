@@ -107,6 +107,29 @@ gateway:
 
 cross:
   replicaCount: 1
+  windowedThresholdMB: 256
+  windowSizeMB: 64
+  maxUploadBytes: "107374182400"
+  maxConcurrent: 4
+  pipelineParallelism: 4
+  searchTopK: 10
+  ccfStore:
+    enabled: "false"
+    path: "/data/ccf-store"
+    backgroundServicesDisabled: "false"
+    packThreshold: "100"
+    packIntervalSec: "300"
+    globalCompaction:
+      enabled: "false"
+      maxSourcePacksPerCycle: "2"
+      maxReadBytesPerCycle: "536870912"
+      maxDurationSec: "45"
+      maxWorkingSetMb: "0"
+      optimizerParallelism: "0"
+    persistence:
+      enabled: false
+      storageClassName: ""
+      size: "50Gi"
   service:
     type: ClusterIP
     grpcPort: 5000
@@ -114,6 +137,14 @@ cross:
     loadBalancerIP: ""
     externalTrafficPolicy: Cluster
     annotations: {}
+  resources: {}
+
+ccfOptimizer:
+  enabled: false
+  replicaCount: 1
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
   resources: {}
 
 webinterface:

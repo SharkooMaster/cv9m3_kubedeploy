@@ -155,6 +155,10 @@ spec:
             - name: ENABLE_CCF_STORE
               value: {{ .Values.cross.ccfStore.enabled | quote }}
             {{- end }}
+            {{- if .Values.cross.ccfStore.backgroundServicesDisabled }}
+            - name: CCF_BACKGROUND_SERVICES_DISABLED
+              value: {{ .Values.cross.ccfStore.backgroundServicesDisabled | quote }}
+            {{- end }}
             {{- if .Values.cross.ccfStore.path }}
             - name: CCF_STORE_PATH
               value: {{ .Values.cross.ccfStore.path | quote }}
@@ -187,6 +191,10 @@ spec:
             {{- if .Values.cross.ccfStore.globalCompaction.maxWorkingSetMb }}
             - name: CCF_COMPACTION_MAX_WORKING_SET_MB
               value: {{ .Values.cross.ccfStore.globalCompaction.maxWorkingSetMb | quote }}
+            {{- end }}
+            {{- if .Values.cross.ccfStore.globalCompaction.optimizerParallelism }}
+            - name: CCF_OPTIMIZER_PARALLELISM
+              value: {{ .Values.cross.ccfStore.globalCompaction.optimizerParallelism | quote }}
             {{- end }}
             {{- end }}
             {{- end }}

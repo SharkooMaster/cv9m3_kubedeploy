@@ -1,0 +1,136 @@
+{{- if and .Values.ccfOptimizer.enabled .Values.cross.ccfStore .Values.cross.ccfStore.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "crossv9.fullname" . }}-ccf-optimizer
+  labels:
+    app.kubernetes.io/component: ccf-optimizer
+    {{- include "crossv9.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.ccfOptimizer.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: ccf-optimizer
+      {{- include "crossv9.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: ccf-optimizer
+        {{- include "crossv9.labels" . | nindent 8 }}
+    spec:
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- range .Values.imagePullSecrets }}
+        - name: {{ . | quote }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.ccfOptimizer.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.ccfOptimizer.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.ccfOptimizer.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: ccf-optimizer
+          image: "{{ .Values.images.cross.repository }}{{ if hasPrefix "sha256:" .Values.images.cross.tag }}@{{ else }}:{{ end }}{{ .Values.images.cross.tag }}"
+          imagePullPolicy: {{ .Values.images.cross.pullPolicy }}
+          ports:
+            - name: grpc
+              containerPort: 5000
+            - name: http
+              containerPort: 5001
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Development"
+            - name: MY_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: MY_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.observability.otel.endpoint | quote }}
+            - name: CROSS_MODE
+              value: {{ .Values.mode.crossMode | quote }}
+            - name: GATEWAY_LOADBALANCER
+              value: {{ printf "%s-gateway-headless" (include "crossv9.fullname" .) | quote }}
+            - name: AGENTS_LOADBALANCER
+              value: {{ printf "%s-agent-headless" (include "crossv9.fullname" .) | quote }}
+            - name: CHUNK_SIZE
+              value: {{ .Values.chunkSize | default 5120 | quote }}
+            - name: ENABLE_CCF_STORE
+              value: {{ .Values.cross.ccfStore.enabled | quote }}
+            - name: CCF_BACKGROUND_SERVICES_DISABLED
+              value: "false"
+            - name: CCF_STORE_PATH
+              value: {{ .Values.cross.ccfStore.path | quote }}
+            {{- if .Values.cross.ccfStore.packThreshold }}
+            - name: CCF_PACK_THRESHOLD
+              value: {{ .Values.cross.ccfStore.packThreshold | quote }}
+            {{- end }}
+            {{- if .Values.cross.ccfStore.packIntervalSec }}
+            - name: CCF_PACK_INTERVAL_SEC
+              value: {{ .Values.cross.ccfStore.packIntervalSec | quote }}
+            {{- end }}
+            {{- if .Values.cross.ccfStore.globalCompaction }}
+            {{- if .Values.cross.ccfStore.globalCompaction.enabled }}
+            - name: CCF_GLOBAL_COMPACTION_ENABLED
+              value: {{ .Values.cross.ccfStore.globalCompaction.enabled | quote }}
+            {{- end }}
+            {{- if .Values.cross.ccfStore.globalCompaction.maxSourcePacksPerCycle }}
+            - name: CCF_COMPACTION_MAX_SOURCE_PACKS_PER_CYCLE
+              value: {{ .Values.cross.ccfStore.globalCompaction.maxSourcePacksPerCycle | quote }}
+            {{- end }}
+            {{- if .Values.cross.ccfStore.globalCompaction.maxReadBytesPerCycle }}
+            - name: CCF_COMPACTION_MAX_READ_BYTES_PER_CYCLE
+              value: {{ .Values.cross.ccfStore.globalCompaction.maxReadBytesPerCycle | quote }}
+            {{- end }}
+            {{- if .Values.cross.ccfStore.globalCompaction.maxDurationSec }}
+            - name: CCF_COMPACTION_MAX_DURATION_SEC
+              value: {{ .Values.cross.ccfStore.globalCompaction.maxDurationSec | quote }}
+            {{- end }}
+            {{- if .Values.cross.ccfStore.globalCompaction.maxWorkingSetMb }}
+            - name: CCF_COMPACTION_MAX_WORKING_SET_MB
+              value: {{ .Values.cross.ccfStore.globalCompaction.maxWorkingSetMb | quote }}
+            {{- end }}
+            {{- if .Values.cross.ccfStore.globalCompaction.optimizerParallelism }}
+            - name: CCF_OPTIMIZER_PARALLELISM
+              value: {{ .Values.cross.ccfStore.globalCompaction.optimizerParallelism | quote }}
+            {{- end }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          {{- if and .Values.cross.ccfStore.persistence .Values.cross.ccfStore.persistence.enabled }}
+          volumeMounts:
+            - name: ccf-store
+              mountPath: {{ .Values.cross.ccfStore.path | default "/data/ccf-store" }}
+          {{- end }}
+          {{- with .Values.ccfOptimizer.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- if and .Values.cross.ccfStore.persistence .Values.cross.ccfStore.persistence.enabled }}
+      volumes:
+        - name: ccf-store
+          persistentVolumeClaim:
+            claimName: {{ include "crossv9.fullname" . }}-ccf-store
+      {{- end }}
+{{- end }}
