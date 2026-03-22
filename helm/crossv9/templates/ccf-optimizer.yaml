@@ -105,6 +105,10 @@ spec:
             - name: CCF_OPTIMIZER_PARALLELISM
               value: {{ .Values.cross.ccfStore.globalCompaction.optimizerParallelism | quote }}
             {{- end }}
+            {{- if .Values.cross.ccfStore.globalCompaction.neuralErrorDisabled }}
+            - name: CCF_NEURAL_ERROR_DISABLED
+              value: {{ .Values.cross.ccfStore.globalCompaction.neuralErrorDisabled | quote }}
+            {{- end }}
             {{- end }}
           readinessProbe:
             httpGet:
