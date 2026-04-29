@@ -1,4 +1,4 @@
-{{- if and .Values.ccfOptimizer.enabled .Values.cross.ccfStore .Values.cross.ccfStore.enabled }}
+{{- if and .Values.ccfOptimizer.enabled .Values.cross.ccfStore (eq (.Values.cross.ccfStore.enabled | toString) "true") }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

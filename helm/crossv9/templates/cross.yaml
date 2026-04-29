@@ -150,11 +150,9 @@ spec:
               value: {{ .Values.cross.laneSearch.searchMax | quote }}
             {{- end }}
             {{- end }}
-            {{- if .Values.cross.ccfStore }}
-            {{- if .Values.cross.ccfStore.enabled }}
+            {{- if and .Values.cross.ccfStore (eq (.Values.cross.ccfStore.enabled | toString) "true") }}
             - name: ENABLE_CCF_STORE
               value: {{ .Values.cross.ccfStore.enabled | quote }}
-            {{- end }}
             {{- if .Values.cross.ccfStore.backgroundServicesDisabled }}
             - name: CCF_BACKGROUND_SERVICES_DISABLED
               value: {{ .Values.cross.ccfStore.backgroundServicesDisabled | quote }}
@@ -210,7 +208,7 @@ spec:
               port: http
             initialDelaySeconds: 30
             periodSeconds: 10
-          {{- if and .Values.cross.ccfStore .Values.cross.ccfStore.persistence .Values.cross.ccfStore.persistence.enabled }}
+          {{- if and .Values.cross.ccfStore (eq (.Values.cross.ccfStore.enabled | toString) "true") .Values.cross.ccfStore.persistence .Values.cross.ccfStore.persistence.enabled }}
           volumeMounts:
             - name: ccf-store
               mountPath: {{ .Values.cross.ccfStore.path | default "/data/ccf-store" }}
@@ -219,13 +217,13 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-      {{- if and .Values.cross.ccfStore .Values.cross.ccfStore.persistence .Values.cross.ccfStore.persistence.enabled }}
+      {{- if and .Values.cross.ccfStore (eq (.Values.cross.ccfStore.enabled | toString) "true") .Values.cross.ccfStore.persistence .Values.cross.ccfStore.persistence.enabled }}
       volumes:
         - name: ccf-store
           persistentVolumeClaim:
             claimName: {{ include "crossv9.fullname" . }}-ccf-store
       {{- end }}
-{{- if and .Values.cross.ccfStore .Values.cross.ccfStore.persistence .Values.cross.ccfStore.persistence.enabled }}
+{{- if and .Values.cross.ccfStore (eq (.Values.cross.ccfStore.enabled | toString) "true") .Values.cross.ccfStore.persistence .Values.cross.ccfStore.persistence.enabled }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

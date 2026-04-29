@@ -144,8 +144,8 @@ cross:
     hashBits: "16"            # Must match agent laneIndex.hashBits
     searchMax: "50"           # Max results per lane query
   ccfStore:
-    enabled: "true"           # Cluster-stored CCF mode (enables dictionary + pack optimizer)
-    path: "/data/ccf-store"   # Mount path for CCF storage PVC
+    enabled: "false"          # Cluster-stored CCF mode disabled (clients receive CCFs back directly)
+    path: "/data/ccf-store"   # Mount path for CCF storage PVC (unused while disabled)
     backgroundServicesDisabled: "true"  # Cross pods serve requests only (optimizer runs in dedicated pod)
     packThreshold: "100"      # Pack CCFs when this many unpacked CCFs accumulate
     packIntervalSec: "30"     # Optimizer check interval (30s for fast dict training during benchmarks)
@@ -157,7 +157,7 @@ cross:
       maxWorkingSetMb: "0"          # Auto-detect: 85% of container memory (48Gi limit → ~40GB ceiling)
       optimizerParallelism: "0"     # 0 = auto (half of CPU cores, max 8)
     persistence:
-      enabled: true
+      enabled: false                # PVC not needed when ccfStore is disabled
       storageClassName: "longhorn"
       size: "100Gi"
   service:
