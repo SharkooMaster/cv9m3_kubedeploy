@@ -101,19 +101,32 @@ agent:
   # With a 14Gi limit, GC.GetGCMemoryInfo().TotalAvailableMemoryBytes sees 14GB,
   # so caches auto-size to that — NOT the full node RAM.
   #
-  # Expected memory with 14Gi limit (after struct-key optimization):
+  # Expected memory with 14Gi limit (post bounded-counter-cache):
   #   RocksDB native block caches: 25% of 14GB = 3.5GB (bucket + chunk)
   #   RocksDB memtables: ~512MB (native)
-  #   Bucket metadata (managed): ~2-3GB (10M+ entries, value-type keys)
+  #   Bucket counter cache (managed, BOUNDED): ~200MB regardless of corpus size
+  #   Bucket cache L1 (managed, disabled by default): 0
   #   Chunk cache (managed): 5% = 700MB
   #   .NET runtime overhead: ~500MB
-  #   Total: ~7.2GB + headroom → well within 14Gi. Leaves 18GB free on 32GB nodes.
+  #   Total: ~5.5GB steady state. Spare headroom for ingest bursts.
   resources:
     requests:
       cpu: "2000m"
       memory: "4Gi"
     limits:
       memory: "14Gi"
+  # GC + counter-cache tuning. Defaults match what RocksDbBucketStorage and the agent
+  # template assume; expose them for ad-hoc tuning during benchmarks without rebuilds.
+  gc:
+    conserveMemory: "5"          # Was 9 (aggressive) — caused liveness-probe stalls
+  counterCache:
+    capacity: "1000000"          # ~150–200 MB managed; bounded regardless of total buckets
+    shards: "64"                 # 64 shards × ~16k entries each → low contention
+  livenessProbe:
+    initialDelaySeconds: 60      # Allow constructor + first compaction to complete
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 6          # Restart only after ~3 minutes of unresponsiveness
 
 gateway:
   replicaCount: 2
@@ -135,6 +148,9 @@ cross:
   maxConcurrent: 2            # 4 global blocks ÷ 2 pods = 2 per pod
   pipelineParallelism: 2      # Match reduced concurrency
   searchTopK: 10                  # Top-K candidates from L1 search (multi-reference diagnostics)
+  gc:
+    conserveMemory: "5"           # Was 9 — too aggressive, caused GC thrash on 64 MB blocks
+    heapHardLimit: "0x140000000"  # 5 GB managed heap cap; cross.resources.limits.memory = 8 Gi
   mosaicDedup:
     enabled: "false"          # Level 2 Mosaic Dedup (set "true" to enable)
     entropyThreshold: "4.0"   # Shannon entropy threshold (bits/byte) for L2 trigger
@@ -167,12 +183,20 @@ cross:
     loadBalancerIP: ""
     externalTrafficPolicy: Cluster
     annotations: {}
+  # Memory limit for cross was previously absent — managed heap was capped at 5 GB by
+  # DOTNET_GCHeapHardLimit but native memory (gRPC buffers, monolithic temp-file reads,
+  # Kestrel) could grow without bound, OOM-killing the node. With windowedThresholdMB=16
+  # the worst case per request is roughly: (window 16 MB) × (maxConcurrent 2) × overhead
+  # for queueing/pipelining ≈ 1–2 GB native + 5 GB managed. 8 GB cgroup limit gives
+  # headroom for that plus gRPC connection buffers and crucially makes the cross pod
+  # OOM-safe before its node does.
   resources:
     requests:
       cpu: "2000m"
       memory: "2Gi"
     limits:
       cpu: "8000m"
+      memory: "8Gi"
 
 ccfOptimizer:
   enabled: true

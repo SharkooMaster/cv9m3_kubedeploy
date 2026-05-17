@@ -106,8 +106,18 @@ spec:
               value: "1"
             - name: COMPlus_PerfMapEnabled
               value: "1"
+            # GCConserveMemory was 9 (most aggressive). At that level the GC reclaims
+            # very aggressively at the cost of frequent stop-the-world pauses, which
+            # were long enough to trip the liveness probe under heavy ingest. With the
+            # bounded counter cache the managed heap is no longer pressure-prone, so we
+            # let the GC run with a calmer policy (5 = balanced).
             - name: DOTNET_GCConserveMemory
-              value: "9"
+              value: {{ default "5" .Values.agent.gc.conserveMemory | quote }}
+            # Also configure BoundedCounterCache via env vars so we can tune without rebuilds.
+            - name: BUCKET_COUNTER_CACHE_CAPACITY
+              value: {{ default "1000000" .Values.agent.counterCache.capacity | quote }}
+            - name: BUCKET_COUNTER_CACHE_SHARDS
+              value: {{ default "64" .Values.agent.counterCache.shards | quote }}
             - name: CHUNK_STORAGE_DIR
               value: "/data/chunks"
             - name: ROCKSDB_PATH
@@ -167,12 +177,21 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 3
             failureThreshold: 20
+          # Liveness probe was: initialDelay=30s, period=10s, default failureThreshold=3
+          # → restarted after only ~30s of HTTP unresponsiveness. Under the previous
+          # heavy-load behaviour (RocksDB compaction + GC stalls) this was tripping
+          # mid-ingest, forcing expensive cold restarts and amplifying the OOM cycle.
+          # New tuning: longer initial delay (gives the bounded-cache constructor +
+          # migration time on first start), longer period, higher failureThreshold so
+          # we only restart after ~3 minutes of confirmed unresponsiveness.
           livenessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 30
-            periodSeconds: 10
+            initialDelaySeconds: {{ default 60 .Values.agent.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ default 30 .Values.agent.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ default 10 .Values.agent.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ default 6 .Values.agent.livenessProbe.failureThreshold }}
           volumeMounts:
             - name: chunks
               mountPath: /data/chunks

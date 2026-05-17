@@ -96,10 +96,16 @@ spec:
               value: "1"
             - name: COMPlus_PerfMapEnabled
               value: "1"
+            # Was 9 (most aggressive). Combined with the absent cgroup memory limit
+            # this caused the .NET GC to thrash during 64 MB block processing for large
+            # files — long pauses pushed the windowed pipeline below its real-time
+            # target and contributed to client-side temp-file backlogs. With a proper
+            # cgroup memory limit on cross now, we can let the GC run with a calmer
+            # policy.
             - name: DOTNET_GCConserveMemory
-              value: "9"
+              value: {{ default "5" .Values.cross.gc.conserveMemory | quote }}
             - name: DOTNET_GCHeapHardLimit
-              value: "0x140000000"
+              value: {{ default "0x140000000" .Values.cross.gc.heapHardLimit | quote }}
             - name: CROSS_MODE
               value: {{ .Values.mode.crossMode | quote }}
             - name: GATEWAY_LOADBALANCER

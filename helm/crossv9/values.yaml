@@ -93,6 +93,21 @@ agent:
   chunkCache:
     sizeMb: 512
     ttlMinutes: 30
+  # Bounded counter cache for `bnext:{bucketId}` — keeps managed RAM constant
+  # regardless of total bucket count. See agent/src/Services/Storage/BoundedCounterCache.cs.
+  counterCache:
+    capacity: "1000000"
+    shards: "64"
+  # GC + liveness tuning. Lower conserveMemory keeps GC pauses short enough that the
+  # liveness probe doesn't trip during bursts; the longer probe interval gives the
+  # agent breathing room during compactions.
+  gc:
+    conserveMemory: "5"
+  livenessProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 6
   persistence:
     enabled: false
     storageClassName: ""
@@ -113,6 +128,9 @@ cross:
   maxConcurrent: 4
   pipelineParallelism: 4
   searchTopK: 10
+  gc:
+    conserveMemory: "5"           # 0..9, lower = fewer pauses (was 9 → triggered stalls)
+    heapHardLimit: "0x140000000"  # 5 GB managed heap cap (native is bounded by cgroup)
   ccfStore:
     enabled: "false"
     path: "/data/ccf-store"
