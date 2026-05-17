@@ -11,11 +11,11 @@ images:
     pullPolicy: Always
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
-    tag: "sha256:e3f15bbe8d2fd7f254840a0063dcd5c951915833fdfa256ed1f4119d4e36fe36"
+    tag: "sha256:067fad1e8b8efd67ceb94dc809277ea5b467918e352e230c189c9ad8cd3b6760"
     pullPolicy: IfNotPresent
   cross:
     repository: "ghcr.io/sharkoomaster/crossv9-cross"
-    tag: "sha256:067fad1e8b8efd67ceb94dc809277ea5b467918e352e230c189c9ad8cd3b6760"
+    tag: "sha256:e3f15bbe8d2fd7f254840a0063dcd5c951915833fdfa256ed1f4119d4e36fe36"
     pullPolicy: Always
   webinterface:
     repository: "ghcr.io/sharkoomaster/crossv9-webinterface"
