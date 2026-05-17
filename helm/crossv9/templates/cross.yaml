@@ -106,6 +106,13 @@ spec:
               value: {{ default "5" .Values.cross.gc.conserveMemory | quote }}
             - name: DOTNET_GCHeapHardLimit
               value: {{ default "0x140000000" .Values.cross.gc.heapHardLimit | quote }}
+            # Job-event telemetry: cross emits to the control-center pod over a
+            # bounded channel. The hot path TryWrite drops events when the channel
+            # is full so compression is never throttled by the dashboard.
+            - name: JOB_EVENTS_ENABLED
+              value: {{ default "true" (.Values.controlcenter.jobEventsEnabled | toString) | quote }}
+            - name: JOB_EVENTS_ENDPOINT
+              value: {{ printf "http://%s-controlcenter:5000" (include "crossv9.fullname" .) | quote }}
             - name: CROSS_MODE
               value: {{ .Values.mode.crossMode | quote }}
             - name: GATEWAY_LOADBALANCER

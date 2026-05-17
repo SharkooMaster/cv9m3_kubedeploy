@@ -24,6 +24,10 @@ images:
     repository: "dockerdeploy-webinterface"
     tag: "latest"
     pullPolicy: IfNotPresent
+  controlcenter:
+    repository: "dockerdeploy-controlcenter"
+    tag: "latest"
+    pullPolicy: IfNotPresent
 
 mode:
   # IMPORTANT:
@@ -180,6 +184,31 @@ webinterface:
         paths:
           - path: /
             pathType: Prefix
+
+# Internal command-center dashboard. Single pod, RWO PVC for the gzip NDJSON
+# event journal, 7-day retention. Cross pods stream JobEvents into the
+# ClusterIP service; the operator hits the LoadBalancer service for the UI.
+controlcenter:
+  enabled: true
+  jobEventsEnabled: true
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "1000m"
+      memory: "512Mi"
+  gc:
+    conserveMemory: "7"
+    heapHardLimit: "0x10000000"   # 256 MB managed heap cap
+  persistence:
+    storageClassName: ""
+    size: "10Gi"
+  uiService:
+    type: LoadBalancer
+    port: 80
+    loadBalancerIP: ""
+    annotations: {}
 
 observability:
   enabled: true

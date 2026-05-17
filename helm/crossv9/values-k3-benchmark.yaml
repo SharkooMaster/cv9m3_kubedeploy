@@ -21,6 +21,10 @@ images:
     repository: "ghcr.io/sharkoomaster/crossv9-webinterface"
     tag: "latest"
     pullPolicy: IfNotPresent
+  controlcenter:
+    repository: "ghcr.io/sharkoomaster/crossv9-controlcenter"
+    tag: "latest"
+    pullPolicy: Always
   benchrunner:
     repository: "ghcr.io/sharkoomaster/crossv9-benchrunner"
     tag: "sha256:3cceb01db546d68172f4c037c2a4b4f05bb05ec980a5a1a1db77a0040fb3ce2e"
@@ -225,6 +229,31 @@ webinterface:
     port: 80
   ingress:
     enabled: false
+
+# Internal command-center: gzip NDJSON journal on a 10Gi PVC, 7-day retention,
+# UI exposed via MetalLB LoadBalancer for the operator. Sized small on purpose
+# (memory budget targets ≤ 200 Mi at idle).
+controlcenter:
+  enabled: true
+  jobEventsEnabled: true
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "128Mi"
+    limits:
+      cpu: "2000m"
+      memory: "512Mi"
+  gc:
+    conserveMemory: "7"
+    heapHardLimit: "0x10000000"   # 256 MB
+  persistence:
+    storageClassName: "longhorn"
+    size: "10Gi"
+  uiService:
+    type: LoadBalancer
+    port: 80
+    loadBalancerIP: ""
+    annotations: {}
 
 observability:
   enabled: true

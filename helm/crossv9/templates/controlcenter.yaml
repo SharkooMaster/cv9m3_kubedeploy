@@ -1,0 +1,157 @@
+{{- if .Values.controlcenter.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "crossv9.fullname" . }}-controlcenter
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+spec:
+  # Internal service for cross pods to push events into; dashboard exposes a
+  # separate LoadBalancer below so the operator can reach it via MetalLB.
+  type: ClusterIP
+  ports:
+    - name: grpc
+      port: 5000
+      targetPort: grpc
+    - name: http
+      port: 5001
+      targetPort: http
+  selector:
+    app.kubernetes.io/component: controlcenter
+    {{- include "crossv9.labels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "crossv9.fullname" . }}-controlcenter-ui
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+  {{- with .Values.controlcenter.uiService.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.controlcenter.uiService.type | default "LoadBalancer" }}
+  {{- if and (eq (.Values.controlcenter.uiService.type | default "LoadBalancer") "LoadBalancer") .Values.controlcenter.uiService.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.controlcenter.uiService.loadBalancerIP | quote }}
+  {{- end }}
+  ports:
+    - name: http
+      port: {{ .Values.controlcenter.uiService.port | default 80 }}
+      targetPort: http
+  selector:
+    app.kubernetes.io/component: controlcenter
+    {{- include "crossv9.labels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "crossv9.fullname" . }}-controlcenter
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+spec:
+  # Single pod by design. The on-disk journal lives on a single PVC and
+  # in-memory KPIs are owned by exactly one process.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: controlcenter
+      {{- include "crossv9.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: controlcenter
+        {{- include "crossv9.labels" . | nindent 8 }}
+    spec:
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- range .Values.imagePullSecrets }}
+        - name: {{ . | quote }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: controlcenter
+          image: "{{ .Values.images.controlcenter.repository }}{{ if hasPrefix "sha256:" .Values.images.controlcenter.tag }}@{{ else }}:{{ end }}{{ .Values.images.controlcenter.tag }}"
+          imagePullPolicy: {{ .Values.images.controlcenter.pullPolicy }}
+          ports:
+            - name: grpc
+              containerPort: 5000
+            - name: http
+              containerPort: 5001
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Production"
+            - name: MY_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: MY_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: JOURNAL_DIR
+              value: "/data/events"
+            # Fleet runtime-stats scraper: comma-separated component=headlessHost.
+            # Each headless service resolves to N pod IPs (DaemonSet/Deployment
+            # replicas), each of which exposes /stats/runtime on port 5001.
+            - name: FLEET_TARGETS
+              value: {{ default
+                (printf "agent=%s-agent-headless,cross=%s-cross-headless,gateway=%s-gateway-headless"
+                  (include "crossv9.fullname" .) (include "crossv9.fullname" .) (include "crossv9.fullname" .))
+                .Values.controlcenter.fleetTargets | quote }}
+            - name: FLEET_SCRAPE_INTERVAL_SEC
+              value: {{ default "30" .Values.controlcenter.fleetScrapeIntervalSec | quote }}
+            - name: FLEET_SCRAPE_TIMEOUT_SEC
+              value: {{ default "5"  .Values.controlcenter.fleetScrapeTimeoutSec  | quote }}
+            # Tight GC config: the workload is small allocations on a steady
+            # interval; we want low working set, not throughput.
+            - name: DOTNET_GCConserveMemory
+              value: {{ default "7" .Values.controlcenter.gc.conserveMemory | quote }}
+            - name: DOTNET_GCHeapHardLimit
+              value: {{ default "0x10000000" .Values.controlcenter.gc.heapHardLimit | quote }}
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 4
+          volumeMounts:
+            - name: events
+              mountPath: /data/events
+          {{- with .Values.controlcenter.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: events
+          persistentVolumeClaim:
+            claimName: {{ include "crossv9.fullname" . }}-controlcenter-events
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "crossv9.fullname" . }}-controlcenter-events
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+spec:
+  # Single pod, single writer — RWO is sufficient and works on every storage
+  # class (longhorn, local-path, hostpath, etc.).
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.controlcenter.persistence.storageClassName }}
+  storageClassName: {{ .Values.controlcenter.persistence.storageClassName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.controlcenter.persistence.size | default "10Gi" }}
+{{- end }}
