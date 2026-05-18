@@ -113,6 +113,32 @@ spec:
             # let the GC run with a calmer policy (5 = balanced).
             - name: DOTNET_GCConserveMemory
               value: {{ default "5" .Values.agent.gc.conserveMemory | quote }}
+            # Hard ceiling for the managed heap. Without this, .NET Server GC
+            # pre-reserves heap based on the cgroup limit (14Gi), so the agent
+            # starts at 9 GB RSS even with no data. A 4Gi cap forces the GC to
+            # work harder when approaching the limit, leaving the rest of the
+            # cgroup for RocksDB and glibc. Tuned in concert with the bounded
+            # counter cache so managed-heap pressure stays low in normal ops.
+            - name: DOTNET_GCHeapHardLimit
+              value: {{ default "0x100000000" .Values.agent.gc.heapHardLimit | quote }}
+            # Keep retired Gen2 segments around so the next allocation burst
+            # doesn't have to re-VirtualAlloc them. Pairs with the 1-minute
+            # Forced LOH compaction timer to keep frag % stable.
+            - name: DOTNET_GCRetainVM
+              value: {{ default "1" .Values.agent.gc.retainVm | quote }}
+            # Bump the "is this an LOH allocation?" threshold from 85 KB to 256 KB.
+            # Several hot-path arrays (similarity scratch, candidate vectors,
+            # per-batch result buffers) land between those two values; raising
+            # the threshold sends them to Gen0 instead, where they compact for free.
+            - name: DOTNET_GCLOHThreshold
+              value: {{ default "262144" .Values.agent.gc.lohThreshold | quote }}
+            # Cap glibc malloc arenas. Without this glibc creates up to 8 × CPU
+            # arenas (≈112 on 14-core nodes), each pre-reserving 64 MB of
+            # uncompactable native heap → multi-GB RSS bloat with very little
+            # live allocation. RocksDB allocates from these arenas, so a low
+            # arena count concentrates native frag and keeps RSS predictable.
+            - name: MALLOC_ARENA_MAX
+              value: {{ default "2" .Values.agent.malloc.arenaMax | quote }}
             # Also configure BoundedCounterCache via env vars so we can tune without rebuilds.
             - name: BUCKET_COUNTER_CACHE_CAPACITY
               value: {{ default "1000000" .Values.agent.counterCache.capacity | quote }}

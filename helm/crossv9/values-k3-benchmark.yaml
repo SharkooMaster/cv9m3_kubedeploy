@@ -123,6 +123,18 @@ agent:
   # template assume; expose them for ad-hoc tuning during benchmarks without rebuilds.
   gc:
     conserveMemory: "5"          # Was 9 (aggressive) — caused liveness-probe stalls
+    heapHardLimit: "0x100000000" # 4 GiB managed heap cap. Cgroup is 14 Gi; the
+                                 # remaining 10 Gi is for RocksDB block cache,
+                                 # bloom filters, memtables and glibc arenas.
+    retainVm: "1"                # Keep retired segments — pairs with the 1-min
+                                 # Forced LOH timer to cap frag at ~20 %.
+    lohThreshold: "262144"       # 256 KB. Several per-batch arrays sit in the
+                                 # 85 KB–256 KB band; raising the threshold
+                                 # routes them through Gen0/1 where they compact.
+  malloc:
+    arenaMax: "2"                # Single biggest RSS-stability win on agent:
+                                 # caps glibc arenas (default ≈8 × cores) so
+                                 # RocksDB's native heap can't sprawl uncapped.
   counterCache:
     capacity: "1000000"          # ~150–200 MB managed; bounded regardless of total buckets
     shards: "64"                 # 64 shards × ~16k entries each → low contention
@@ -155,6 +167,14 @@ cross:
   gc:
     conserveMemory: "5"           # Was 9 — too aggressive, caused GC thrash on 64 MB blocks
     heapHardLimit: "0x140000000"  # 5 GB managed heap cap; cross.resources.limits.memory = 8 Gi
+    retainVm: "1"                 # Keep retired Gen2 segments so the next file
+                                  # compress doesn't re-VirtualAlloc them.
+    lohThreshold: "262144"        # 256 KB — most per-block arrays in the
+                                  # compression pipeline now compact for free.
+  malloc:
+    arenaMax: "2"                 # Cap glibc arenas. Cross is .NET-only on the
+                                  # hot path but capping prevents the bloat
+                                  # failure mode we already cured on agent.
   mosaicDedup:
     enabled: "false"          # Level 2 Mosaic Dedup (set "true" to enable)
     entropyThreshold: "4.0"   # Shannon entropy threshold (bits/byte) for L2 trigger

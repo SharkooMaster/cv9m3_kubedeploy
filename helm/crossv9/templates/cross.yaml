@@ -106,6 +106,23 @@ spec:
               value: {{ default "5" .Values.cross.gc.conserveMemory | quote }}
             - name: DOTNET_GCHeapHardLimit
               value: {{ default "0x140000000" .Values.cross.gc.heapHardLimit | quote }}
+            # Keep retired Gen2 segments around so the next compress pipeline
+            # doesn't re-VirtualAlloc them. Pairs with the 1-minute Forced LOH
+            # compaction timer in Program.cs to keep frag % stable.
+            - name: DOTNET_GCRetainVM
+              value: {{ default "1" .Values.cross.gc.retainVm | quote }}
+            # Bump LOH threshold from 85 KB to 256 KB. The cross compress hot
+            # path produces lots of arrays in the 85 KB–256 KB range (per-block
+            # bitmasks, refs payloads, donor chunk batches). Pushing them off
+            # the LOH onto Gen0/1 — where they compact for free — is the
+            # cheapest single source of LOH-frag relief.
+            - name: DOTNET_GCLOHThreshold
+              value: {{ default "262144" .Values.cross.gc.lohThreshold | quote }}
+            # Cap glibc malloc arenas. Cross is .NET-only on the hot path so
+            # this matters less than on agent, but capping prevents the same
+            # native-heap-bloat failure mode that we already cured on agent.
+            - name: MALLOC_ARENA_MAX
+              value: {{ default "2" .Values.cross.malloc.arenaMax | quote }}
             # Job-event telemetry: cross emits to the control-center pod over a
             # bounded channel. The hot path TryWrite drops events when the channel
             # is full so compression is never throttled by the dashboard.

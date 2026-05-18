@@ -107,6 +107,11 @@ agent:
   # agent breathing room during compactions.
   gc:
     conserveMemory: "5"
+    heapHardLimit: "0x100000000"   # 4 GiB managed heap cap; rest of cgroup for RocksDB + glibc
+    retainVm: "1"                  # Keep retired Gen2 segments — pairs with 1-min Forced LOH timer
+    lohThreshold: "262144"         # 256 KB — push mid-size arrays off the LOH onto compactable Gen0/1
+  malloc:
+    arenaMax: "2"                  # Cap glibc arenas to stop RocksDB native-heap sprawl
   livenessProbe:
     initialDelaySeconds: 60
     periodSeconds: 30
@@ -135,6 +140,10 @@ cross:
   gc:
     conserveMemory: "5"           # 0..9, lower = fewer pauses (was 9 → triggered stalls)
     heapHardLimit: "0x140000000"  # 5 GB managed heap cap (native is bounded by cgroup)
+    retainVm: "1"                 # Keep retired segments; pairs with the 1-min Forced LOH timer
+    lohThreshold: "262144"        # 256 KB — most per-block arrays compact for free at this threshold
+  malloc:
+    arenaMax: "2"                 # Cap glibc arenas
   ccfStore:
     enabled: "false"
     path: "/data/ccf-store"
