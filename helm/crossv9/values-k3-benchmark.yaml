@@ -15,7 +15,7 @@ images:
     pullPolicy: IfNotPresent
   cross:
     repository: "ghcr.io/sharkoomaster/crossv9-cross"
-    tag: "sha256:ce29f84b0a82b7b9adc2c4a2bc14d7e2de9fba811d10f0a7d3b043a055c689ba"
+    tag: "sha256:a8478ba26de98fd162f131fcb8caff293161b3525a15e49a22da0a1125dd67ee"
     pullPolicy: Always
   webinterface:
     repository: "ghcr.io/sharkoomaster/crossv9-webinterface"
@@ -175,6 +175,19 @@ cross:
     arenaMax: "2"                 # Cap glibc arenas. Cross is .NET-only on the
                                   # hot path but capping prevents the bloat
                                   # failure mode we already cured on agent.
+  # Per-agent RPC throttle + circuit breaker. The soft timeout is what catches
+  # "agent slow but not erroring" — without it, a wedged-but-alive agent could
+  # silently hold throttle slots forever (the failure mode that came back
+  # today after yesterday's deadline removal).
+  agentThrottle:
+    maxInflight: "4"
+    maxAttempts: "5"
+    breakerFailureThreshold: "5"
+    breakerCooldownSec: "30"
+    softTimeoutSec: "180"         # 3 minutes per RPC. Healthy BatchGet is
+                                  # ~10–400 ms so this never trips real work,
+                                  # but turns a wedged call into a breaker
+                                  # trip within 3 minutes.
   mosaicDedup:
     enabled: "false"          # Level 2 Mosaic Dedup (set "true" to enable)
     entropyThreshold: "4.0"   # Shannon entropy threshold (bits/byte) for L2 trigger

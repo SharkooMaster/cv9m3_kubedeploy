@@ -148,6 +148,29 @@ spec:
               value: {{ .Values.cross.maxConcurrent | default 4 | quote }}
             - name: CROSS_PIPELINE_PARALLELISM
               value: {{ .Values.cross.pipelineParallelism | default 4 | quote }}
+            # ── Agent RPC throttle + circuit breaker tuning ──
+            # AGENT_MAX_INFLIGHT_RPCS: max parallel cross→agent calls per agent
+            #   pod (gate width). Default 4.
+            # AGENT_RPC_MAX_ATTEMPTS: bounded retry across CircuitOpen /
+            #   SlowAgent / network errors. Default 5.
+            # AGENT_BREAKER_FAILURE_THRESHOLD: consecutive failures that trip
+            #   the breaker. Default 5.
+            # AGENT_BREAKER_COOLDOWN_SEC: how long Open stays Open before the
+            #   next caller becomes the half-open probe. Default 30.
+            # AGENT_RPC_SOFT_TIMEOUT_SEC: synthetic-failure soft deadline.
+            #   The inner gRPC call is NOT cancelled; the caller just observes
+            #   SlowAgentException at this point so a wedged agent eventually
+            #   trips the breaker. Default 180 (~30–18 000× healthy latency).
+            - name: AGENT_MAX_INFLIGHT_RPCS
+              value: {{ default "4" .Values.cross.agentThrottle.maxInflight | quote }}
+            - name: AGENT_RPC_MAX_ATTEMPTS
+              value: {{ default "5" .Values.cross.agentThrottle.maxAttempts | quote }}
+            - name: AGENT_BREAKER_FAILURE_THRESHOLD
+              value: {{ default "5" .Values.cross.agentThrottle.breakerFailureThreshold | quote }}
+            - name: AGENT_BREAKER_COOLDOWN_SEC
+              value: {{ default "30" .Values.cross.agentThrottle.breakerCooldownSec | quote }}
+            - name: AGENT_RPC_SOFT_TIMEOUT_SEC
+              value: {{ default "180" .Values.cross.agentThrottle.softTimeoutSec | quote }}
             {{- if .Values.cross.searchTopK }}
             - name: SEARCH_TOP_K
               value: {{ .Values.cross.searchTopK | quote }}

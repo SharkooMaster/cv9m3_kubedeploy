@@ -144,6 +144,12 @@ cross:
     lohThreshold: "262144"        # 256 KB — most per-block arrays compact for free at this threshold
   malloc:
     arenaMax: "2"                 # Cap glibc arenas
+  agentThrottle:
+    maxInflight: "4"
+    maxAttempts: "5"
+    breakerFailureThreshold: "5"
+    breakerCooldownSec: "30"
+    softTimeoutSec: "180"         # Synthetic-failure deadline for wedged-but-alive agents
   ccfStore:
     enabled: "false"
     path: "/data/ccf-store"
