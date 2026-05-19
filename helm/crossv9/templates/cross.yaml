@@ -188,6 +188,16 @@ spec:
               value: {{ default "30" .Values.cross.agentThrottle.breakerCooldownSec | quote }}
             - name: AGENT_RPC_SOFT_TIMEOUT_SEC
               value: {{ default "180" .Values.cross.agentThrottle.softTimeoutSec | quote }}
+            # ── Integrity smoketest ──
+            # Compresses → immediately decompresses inside the SAME pod, byte-
+            # diffs the result, and on mismatch logs the chunk index, encode
+            # case, ref coords, encoder-base SHA, and the agent's fetched-base
+            # SHA right now. Doubles every Compress's latency — keep off in
+            # prod, flip on while hunting integrity bugs.
+            {{- if .Values.cross.integrityDecompressSmoketest }}
+            - name: INTEGRITY_DECOMPRESS_SMOKETEST
+              value: {{ .Values.cross.integrityDecompressSmoketest | quote }}
+            {{- end }}
             {{- if .Values.cross.searchTopK }}
             - name: SEARCH_TOP_K
               value: {{ .Values.cross.searchTopK | quote }}

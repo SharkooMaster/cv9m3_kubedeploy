@@ -230,6 +230,12 @@ cross:
   replicaCount: 2
   windowedThresholdMB: 16     # Match client's windowed threshold
   windowSizeMB: 4             # Match client's 4MB block size
+  # ── Integrity smoketest ──
+  # Compress → immediate in-process decompress → byte-diff against original.
+  # When mismatched, logs the EXACT chunk index, encode case, and the
+  # discrepancy between what the encoder thought the base bytes were and
+  # what the agent serves for that ref right now. Doubles compress latency.
+  integrityDecompressSmoketest: true
   maxUploadBytes: "107374182400"  # 100 GiB max upload (windowed handles RAM)
   maxConcurrent: 2            # 4 global blocks ÷ 2 pods = 2 per pod
   pipelineParallelism: 2      # Match reduced concurrency
