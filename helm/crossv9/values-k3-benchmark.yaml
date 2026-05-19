@@ -11,7 +11,7 @@ images:
     pullPolicy: Always
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
-    tag: "sha256:067fad1e8b8efd67ceb94dc809277ea5b467918e352e230c189c9ad8cd3b6760"
+    tag: "sha256:e32b7b974023c14112bf8cb73173c10459a1b7a8507ab18c37ddf027b476af33"
     pullPolicy: IfNotPresent
   cross:
     repository: "ghcr.io/sharkoomaster/crossv9-cross"
