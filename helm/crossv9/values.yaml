@@ -124,6 +124,39 @@ externalRedis:
   host: ""
   port: 6379
 
+# ── etcd ──────────────────────────────────────────────────────────────────
+# Single-pod authoritative agent membership registry.
+#
+# Why: Cross's RendezvousRouter used to build its agent list from per-pod
+# DNS+GetNodeInfo polling. That polling was independent per cross pod and
+# could drift ~15 s, sending the same (BucketId, BucketKey) to different
+# agents from two cross pods → silent decompress corruption. With etcd,
+# every cross pod sees the same linearised stream of agent-membership
+# events, so routing decisions are globally consistent.
+#
+# Membership working set is ~6 keys × ~200 B → < 2 KB total. A single etcd
+# pod with a tiny PVC is plenty. Disable if you want to plug in your own
+# etcd cluster — just set externalEtcd.endpoints and etcd.enabled=false.
+etcd:
+  enabled: true
+  image: "quay.io/coreos/etcd:v3.5.13"
+  persistence:
+    enabled: true
+    storageClassName: ""    # use cluster default; set to "longhorn" for HA
+    size: "1Gi"
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+
+# Used when etcd.enabled=false (point at your own etcd cluster).
+# Example: "http://my-etcd.default.svc.cluster.local:2379"
+externalEtcd:
+  endpoint: ""
+
 agent:
   # workloadKind: Deployment | StatefulSet | DaemonSet
   #

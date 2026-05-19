@@ -103,6 +103,22 @@ spec:
               value: {{ ternary (printf "%s-redis" (include "crossv9.fullname" .)) (default "" .Values.externalRedis.host) .Values.redis.enabled | quote }}
             - name: REDIS_PORT
               value: {{ (ternary .Values.redis.port (default 6379 .Values.externalRedis.port) .Values.redis.enabled) | quote }}
+            # ── etcd: agent registers itself under /agents/<podName> ──
+            # so cross's RendezvousRouter can consume membership atomically
+            # instead of relying on independent DNS+GetNodeInfo polling.
+            # If etcd.enabled=false and no externalEtcd.endpoint is set we
+            # omit the variable; the agent then runs without registration
+            # (logs a one-liner) and cross falls back to legacy DNS routing.
+            {{- $etcdEndpoint := "" }}
+            {{- if .Values.etcd.enabled }}
+              {{- $etcdEndpoint = printf "http://%s-etcd.%s.svc.cluster.local:2379" (include "crossv9.fullname" .) .Release.Namespace }}
+            {{- else if .Values.externalEtcd.endpoint }}
+              {{- $etcdEndpoint = .Values.externalEtcd.endpoint }}
+            {{- end }}
+            {{- if $etcdEndpoint }}
+            - name: ETCD_ENDPOINT
+              value: {{ $etcdEndpoint | quote }}
+            {{- end }}
             - name: MY_POD_IP
               valueFrom:
                 fieldRef:

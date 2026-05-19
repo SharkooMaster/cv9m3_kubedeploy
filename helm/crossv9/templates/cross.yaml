@@ -136,6 +136,23 @@ spec:
               value: {{ printf "%s-gateway-headless" (include "crossv9.fullname" .) | quote }}
             - name: AGENTS_LOADBALANCER
               value: {{ printf "%s-agent-headless" (include "crossv9.fullname" .) | quote }}
+            # ── etcd: authoritative membership for RendezvousRouter ──
+            # Cross subscribes to /agents/<podName> and atomically swaps its
+            # member list on every event. This is what makes every cross pod
+            # see the same agent ring at the same time (eliminating the
+            # cross-pod routing drift that produced INTEGRITY_DECOMPRESS).
+            # If unset, cross falls back to the legacy DNS+GetNodeInfo path
+            # (which has the drift bug but still runs).
+            {{- $etcdEndpoint := "" }}
+            {{- if .Values.etcd.enabled }}
+              {{- $etcdEndpoint = printf "http://%s-etcd.%s.svc.cluster.local:2379" (include "crossv9.fullname" .) .Release.Namespace }}
+            {{- else if .Values.externalEtcd.endpoint }}
+              {{- $etcdEndpoint = .Values.externalEtcd.endpoint }}
+            {{- end }}
+            {{- if $etcdEndpoint }}
+            - name: ETCD_ENDPOINT
+              value: {{ $etcdEndpoint | quote }}
+            {{- end }}
             - name: CHUNK_SIZE
               value: {{ .Values.chunkSize | default 5120 | quote }}
             - name: CROSS_WINDOWED_THRESHOLD_MB

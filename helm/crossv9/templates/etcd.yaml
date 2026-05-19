@@ -1,0 +1,165 @@
+{{- if .Values.etcd.enabled }}
+# ─────────────────────────────────────────────────────────────────────────────
+# etcd — single-pod authoritative agent membership registry.
+#
+# Why this exists:
+# Cross's RendezvousRouter previously built its agent list from independent
+# DNS + GetNodeInfo polling per pod, which could drift by up to 15s. Two
+# cross pods with different views routed the same (BucketId, BucketKey) to
+# different agents → silent corruption at decompress (INTEGRITY_DECOMPRESS).
+#
+# Now: every agent registers itself under /agents/<podName> with a 10s lease
+# + heartbeat. Every cross pod watches that prefix. All cross pods see the
+# same linearised event stream from one etcd, so PickAgent decisions are
+# globally consistent. No replication, no sharding, no rebalancing on
+# add/remove — pure rendezvous, just with a synchronised input.
+#
+# Sizing: membership is ~6 keys of ~200 B each → <2 KB total. A single
+# pod with a 256 Mi RAM cap and a 1 GiB Longhorn PVC is hugely over-
+# provisioned and gives us crash-safe restarts.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "crossv9.fullname" . }}-etcd
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+    app.kubernetes.io/component: etcd
+spec:
+  type: ClusterIP
+  ports:
+    - name: client
+      port: 2379
+      targetPort: 2379
+    - name: peer
+      port: 2380
+      targetPort: 2380
+  selector:
+    app.kubernetes.io/component: etcd
+    {{- include "crossv9.labels" . | nindent 4 }}
+---
+# Headless service so the etcd pod gets a stable DNS name we can use as
+# --advertise-client-urls (required by etcd to advertise itself).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "crossv9.fullname" . }}-etcd-headless
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+    app.kubernetes.io/component: etcd
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: client
+      port: 2379
+      targetPort: 2379
+    - name: peer
+      port: 2380
+      targetPort: 2380
+  selector:
+    app.kubernetes.io/component: etcd
+    {{- include "crossv9.labels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "crossv9.fullname" . }}-etcd
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+    app.kubernetes.io/component: etcd
+spec:
+  serviceName: {{ include "crossv9.fullname" . }}-etcd-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: etcd
+      {{- include "crossv9.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: etcd
+        {{- include "crossv9.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: etcd
+          image: {{ .Values.etcd.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: client
+              containerPort: 2379
+            - name: peer
+              containerPort: 2380
+          env:
+            - name: MY_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: ALLOW_NONE_AUTHENTICATION
+              value: "yes"
+            - name: ETCD_NAME
+              value: "etcd0"
+            - name: ETCD_DATA_DIR
+              value: "/var/run/etcd/default.etcd"
+            - name: ETCD_LISTEN_CLIENT_URLS
+              value: "http://0.0.0.0:2379"
+            - name: ETCD_LISTEN_PEER_URLS
+              value: "http://0.0.0.0:2380"
+            - name: ETCD_ADVERTISE_CLIENT_URLS
+              value: "http://$(MY_POD_NAME).{{ include "crossv9.fullname" . }}-etcd-headless.{{ .Release.Namespace }}.svc.cluster.local:2379"
+            - name: ETCD_INITIAL_ADVERTISE_PEER_URLS
+              value: "http://$(MY_POD_NAME).{{ include "crossv9.fullname" . }}-etcd-headless.{{ .Release.Namespace }}.svc.cluster.local:2380"
+            - name: ETCD_INITIAL_CLUSTER
+              value: "etcd0=http://$(MY_POD_NAME).{{ include "crossv9.fullname" . }}-etcd-headless.{{ .Release.Namespace }}.svc.cluster.local:2380"
+            - name: ETCD_INITIAL_CLUSTER_STATE
+              value: "new"
+            - name: ETCD_INITIAL_CLUSTER_TOKEN
+              value: {{ printf "%s-etcd-cluster" (include "crossv9.fullname" .) | quote }}
+            # Keep on-disk usage tiny: agents publish ~200 B each, total
+            # working set < 2 KB. Auto-compact aggressively so we never
+            # build up history.
+            - name: ETCD_AUTO_COMPACTION_MODE
+              value: "periodic"
+            - name: ETCD_AUTO_COMPACTION_RETENTION
+              value: "1m"
+            - name: ETCD_QUOTA_BACKEND_BYTES
+              value: "268435456"
+          volumeMounts:
+            - name: data
+              mountPath: /var/run/etcd
+          readinessProbe:
+            exec:
+              command: ["etcdctl", "endpoint", "health"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["etcdctl", "endpoint", "health"]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 4
+          {{- with .Values.etcd.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- if not .Values.etcd.persistence.enabled }}
+      volumes:
+        - name: data
+          emptyDir: {}
+      {{- end }}
+  {{- if .Values.etcd.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.etcd.persistence.storageClassName }}
+        storageClassName: {{ .Values.etcd.persistence.storageClassName | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.etcd.persistence.size | quote }}
+  {{- end }}
+{{- end }}

@@ -31,7 +31,7 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    tag: "sha256:5aa6ab39e3e6dc97fa9632aae0a537949e4537b130545008d6f0d612ac204147"
+    tag: "sha256:2fdc921769366792aaa865d7a9b89ee5103fac37ddce3ced4b8ababc5beb9e6d"
     pullPolicy: Always
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
@@ -39,7 +39,7 @@ images:
     pullPolicy: IfNotPresent
   cross:
     repository: "ghcr.io/sharkoomaster/crossv9-cross"
-    tag: "sha256:7d5c80cd4ede26e8296404078e54ce756ac8e9e96f78615a00e749e1143e0513"
+    tag: "sha256:b24b98ceee4ab261052aecaa63bbbe18ac9e0c3358520dcf627c5b59708ed450"
     pullPolicy: Always
   webinterface:
     repository: "ghcr.io/sharkoomaster/crossv9-webinterface"
@@ -93,6 +93,33 @@ redis:
 externalRedis:
   host: ""
   port: 6379
+
+# ── etcd: authoritative agent-membership registry ────────────────────────
+# Single-pod etcd that holds /agents/<podName> → IP entries with 10s leases.
+# Every agent registers on startup + heartbeats. Every cross pod watches the
+# /agents/ prefix and updates its RendezvousRouter atomically.
+#
+# This is the fix for cross-pod routing divergence (cross pods disagreeing
+# on which agent owns a bucket → wrong chunk bytes → INTEGRITY_DECOMPRESS).
+# Membership data is ~2 KB total, so a single pod with a tiny Longhorn PVC
+# is plenty.
+etcd:
+  enabled: true
+  image: "quay.io/coreos/etcd:v3.5.13"
+  persistence:
+    enabled: true
+    storageClassName: "longhorn"
+    size: "1Gi"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+externalEtcd:
+  endpoint: ""
 
 agent:
   # StatefulSet gives each agent a stable identity (crossv9-agent-0, -1, ...)
