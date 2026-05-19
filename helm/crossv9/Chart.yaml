@@ -5,4 +5,19 @@ type: application
 version: 0.1.0
 appVersion: "0.0.0"
 
+# ── Subchart dependencies ─────────────────────────────────────────────────
+# Longhorn is bundled as a dependency because the crossv9 agent StatefulSet
+# requires a `longhorn` storage class for its per-pod RWO volumes (the
+# correctness-critical change documented in values.yaml). Including it here
+# means `helm upgrade --install crossv9 ...` brings up storage *and* the
+# application in one shot, and the version is pinned for reproducibility.
+#
+# Note: only enable `longhorn.enabled` when no separate Longhorn install
+# exists in the cluster. Two Longhorn installs would fight over the same
+# CRDs.
+dependencies:
+  - name: longhorn
+    version: "1.7.2"
+    repository: "https://charts.longhorn.io"
+    condition: longhorn.enabled
 

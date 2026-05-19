@@ -2,6 +2,30 @@
 # Sized for stability during TB-scale benchmarks — no OOM crashes.
 # Replace image repositories and secret values before deploy.
 
+# ── Longhorn (subchart) ──────────────────────────────────────────────────
+# We own storage in this cluster, so our chart installs and configures
+# Longhorn directly. Storage pool = every node (no disk labels required),
+# replica count = 3, UI exposed as NodePort. Disable this only if you've
+# pre-installed Longhorn through another channel.
+longhorn:
+  enabled: true
+  namespaceOverride: "longhorn-system"
+  defaultSettings:
+    createDefaultDiskLabeledNodes: false
+    defaultDataPath: "/var/lib/longhorn/"
+    defaultReplicaCount: 3
+    replicaAutoBalance: "best-effort"
+    # Optional: bump this if your nodes have <15% free space and Longhorn
+    # starts refusing to provision. Default 25 is fine for 6×i9 boxes.
+    # storageMinimalAvailablePercentage: 10
+  persistence:
+    defaultClass: true
+    defaultClassReplicaCount: 3
+    reclaimPolicy: Delete
+  service:
+    ui:
+      type: NodePort
+
 imagePullSecrets: []
 
 images:

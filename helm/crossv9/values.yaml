@@ -4,6 +4,50 @@ global:
   nameOverride: ""
   fullnameOverride: ""
 
+# ── Longhorn subchart ────────────────────────────────────────────────────
+# Bundled as a dependency in Chart.yaml. When enabled, our chart installs
+# Longhorn into the same release alongside the application. Disable this
+# (set longhorn.enabled=false) when:
+#   - Longhorn is already installed by another helm release / kustomize.
+#   - The cluster uses a different storage class (and you've set
+#     agent.persistence.storageClassName accordingly).
+#
+# Values under `longhorn:` are forwarded directly to the upstream Longhorn
+# chart — see https://github.com/longhorn/longhorn/tree/master/chart for
+# the full reference. The few defaults we override here are the ones that
+# matter for the crossv9 agent StatefulSet to work cleanly out of the box.
+longhorn:
+  enabled: false   # opt-in by default; set true in environments where we own storage
+  # Pin Longhorn to its conventional namespace even when the parent chart
+  # (crossv9) lives elsewhere. This keeps Longhorn's webhooks, CRD watchers,
+  # and instance manager pods isolated from application workloads — and
+  # matches everyone else's tutorials/docs that assume `longhorn-system`.
+  namespaceOverride: "longhorn-system"
+  defaultSettings:
+    # Use disks on every Longhorn-managed node (storage pool = whole cluster).
+    # The user-visible knob is per-node `allowScheduling` — this default
+    # combined with createDefaultDiskLabeledNodes=false enables disks on
+    # every node Longhorn discovers, instead of waiting for a label.
+    createDefaultDiskLabeledNodes: false
+    # Where each node keeps its replica data. Stable, predictable path so
+    # disk-wipe scripts know what to clean.
+    defaultDataPath: "/var/lib/longhorn/"
+    # 3 replicas is Longhorn's default and the right number once all 6
+    # cluster nodes are storage nodes. Lower it (e.g. 2) if you'll only
+    # ever have <3 storage nodes.
+    defaultReplicaCount: 3
+    # Auto-rebalance volumes across nodes when topology changes.
+    replicaAutoBalance: "best-effort"
+  persistence:
+    defaultClass: true
+    defaultClassReplicaCount: 3
+    reclaimPolicy: Delete
+  service:
+    ui:
+      # NodePort gives the UI a stable port across all nodes — hit any
+      # node IP on the assigned 3xxxx port. No port-forward needed.
+      type: NodePort
+
 imagePullSecrets: []
 
 images:
