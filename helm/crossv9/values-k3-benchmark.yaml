@@ -23,7 +23,7 @@ images:
     pullPolicy: IfNotPresent
   controlcenter:
     repository: "ghcr.io/sharkoomaster/crossv9-controlcenter"
-    tag: "sha256:e7f78b340ef8c1e66d5791782e228d16b65aecfc20c1982e3af549b1eb4f322c"
+    tag: "sha256:61433f9150e06b6cb15b5e128207caa1f9b084df9e7788a4c22df4be9c8e73b3"
     pullPolicy: Always
   benchrunner:
     repository: "ghcr.io/sharkoomaster/crossv9-benchrunner"
