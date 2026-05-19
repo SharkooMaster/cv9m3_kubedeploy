@@ -287,7 +287,12 @@ cross:
     type: LoadBalancer
     grpcPort: 5000
     httpPort: 5001
-    loadBalancerIP: ""
+    # Pinned MetalLB-assigned IP so the router's port-forward target is stable
+    # across redeploys / full namespace tear-downs. Without this MetalLB picks
+    # the next free IP from its pool every fresh install, breaking the router
+    # config. Make sure this IP is inside the MetalLB pool range and not in
+    # use by another service in the same pool.
+    loadBalancerIP: "192.168.50.70"
     externalTrafficPolicy: Cluster
     annotations: {}
   # Memory limit for cross was previously absent — managed heap was capped at 5 GB by
