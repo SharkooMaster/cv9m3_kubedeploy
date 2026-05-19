@@ -7,7 +7,7 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    tag: "sha256:4d0806d1a89ff11574569b91eb852b14d44bde77aabc315828daa6f907b5c85b"
+    tag: "sha256:5aa6ab39e3e6dc97fa9632aae0a537949e4537b130545008d6f0d612ac204147"
     pullPolicy: Always
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
@@ -71,7 +71,21 @@ externalRedis:
   port: 6379
 
 agent:
-  workloadKind: DaemonSet
+  # StatefulSet gives each agent a stable identity (crossv9-agent-0, -1, ...)
+  # and a per-pod Longhorn RWO volume that follows the pod across node
+  # reschedules. This is required for correctness — Rendezvous Hashing now
+  # routes by pod name (MY_POD_NAME), so chunks stored by agent-0 always
+  # resolve back to agent-0's volume regardless of which node hosts it.
+  #
+  # Previous DaemonSet+hostPath setup was the root cause of decompress
+  # corruption: hostPath data is tied to the node, but Rendezvous routing
+  # could land at a different agent after any node blip, returning the new
+  # agent's unrelated bytes at the same (BucketId, BucketKey) coordinates.
+  workloadKind: StatefulSet
+  # Pick this to match (or exceed) your previous DaemonSet pod count so
+  # the hash ring stays roughly the same size. With 6 worker nodes the
+  # previous DaemonSet ran 6 pods; mirror that here.
+  replicaCount: 6
   storageBackend: rocksdb
   rocksdb:
     path: "/data/chunks/rocksdb"
@@ -98,9 +112,14 @@ agent:
     searchMax: "50"           # Max results per lane query
   persistence:
     enabled: true
-    hostPath: "/var/lib/crossv9/chunks"  # DaemonSet uses hostPath (each node gets its own dir)
-    storageClassName: "longhorn"  # only used when workloadKind != DaemonSet
+    # StatefulSet branch: each pod gets its own Longhorn RWO PVC via
+    # volumeClaimTemplates. The pod-pinned volume is what makes data
+    # survive a node reschedule.
+    storageClassName: "longhorn"
     size: "300Gi"
+    # hostPath is dead in StatefulSet mode — left here only for the legacy
+    # DaemonSet fallback path. Don't rely on it.
+    hostPath: "/var/lib/crossv9/chunks"
   # Resource limits: the agent auto-sizes caches based on cgroup memory limit.
   # With a 14Gi limit, GC.GetGCMemoryInfo().TotalAvailableMemoryBytes sees 14GB,
   # so caches auto-size to that — NOT the full node RAM.

@@ -81,7 +81,30 @@ externalRedis:
   port: 6379
 
 agent:
-  workloadKind: Deployment # Deployment or DaemonSet
+  # workloadKind: Deployment | StatefulSet | DaemonSet
+  #
+  # StatefulSet (RECOMMENDED for any environment that has Longhorn or another
+  #   per-pod RWO storage class):
+  #     - Each replica gets a stable pod name (agent-0, agent-1, ...) and its
+  #       own RWO PVC via volumeClaimTemplates. The volume follows the pod
+  #       across node reschedules, so chunks remain reachable on the agent
+  #       that stored them regardless of which node hosts it.
+  #     - Rendezvous Hashing (cross/gateway) routes by pod name, so the
+  #       routing key is stable across reschedules. This is the only mode
+  #       that's safe against silent decompress corruption when the cluster
+  #       topology changes.
+  #
+  # DaemonSet (one pod per node, hostPath storage):
+  #     - Simpler but the storage is tied to the K8s node. Any pod-to-node
+  #       move re-hashes ~1/N buckets to a different agent that doesn't have
+  #       the chunks → silent corruption at decompress. Only use this if
+  #       your nodes never move and never reschedule.
+  #
+  # Deployment (single shared PVC):
+  #     - Only works with an RWX storage class. RocksDB does not tolerate
+  #       multiple writers on the same files, so this mode is effectively
+  #       limited to replicaCount=1.
+  workloadKind: Deployment
   replicaCount: 3
   resources: {}
   storageBackend: local # local, s3, gcs, rocksdb

@@ -46,6 +46,21 @@ spec:
   {{- if eq (.Values.agent.workloadKind | default "Deployment") "Deployment" }}
   replicas: {{ .Values.agent.replicaCount }}
   {{- end }}
+  {{- if eq (.Values.agent.workloadKind | default "Deployment") "StatefulSet" }}
+  # serviceName MUST point at the headless service so each pod gets a
+  # stable DNS A record (crossv9-agent-0.crossv9-agent-headless.<ns>.svc).
+  # Rendezvous Hashing now keys off MY_POD_NAME, so this stable identity
+  # is what makes routing survive node reschedules.
+  serviceName: {{ include "crossv9.fullname" . }}-agent-headless
+  replicas: {{ .Values.agent.replicaCount }}
+  # Parallel pod management: bring all pods up simultaneously instead of
+  # the default OrderedReady (which would serialise startup, blocking on
+  # pod-0 fully ready before starting pod-1). Cross/gateway tolerate
+  # partial fleets just fine via the headless DNS + GetNodeInfo refresh.
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  {{- end }}
   selector:
     matchLabels:
       app.kubernetes.io/component: agent
@@ -225,6 +240,11 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+      {{- if ne (.Values.agent.workloadKind | default "Deployment") "StatefulSet" }}
+      # Deployment / DaemonSet branch — the StatefulSet branch handles its
+      # storage via volumeClaimTemplates below (one PVC per pod, named by
+      # pod ordinal). Keeping the legacy volume modes here lets you roll
+      # back to DaemonSet+hostPath if Longhorn misbehaves.
       volumes:
         - name: chunks
           {{- if and .Values.agent.persistence.enabled (eq (.Values.agent.workloadKind | default "Deployment") "DaemonSet") }}
@@ -237,8 +257,31 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
-{{- if and .Values.agent.persistence.enabled (ne (.Values.agent.workloadKind | default "Deployment") "DaemonSet") }}
+      {{- end }}
+  {{- if eq (.Values.agent.workloadKind | default "Deployment") "StatefulSet" }}
+  # One Longhorn RWO volume per pod ordinal. Longhorn keeps each volume
+  # bound to its owning pod across reschedules, so chunks stored by
+  # crossv9-agent-0 stay reachable from crossv9-agent-0 no matter which
+  # node it ends up on. This is the storage shape that actually makes
+  # Rendezvous Hashing safe in this codebase — without it, a pod-to-node
+  # move silently re-hashes ~1/N buckets to an agent that doesn't have
+  # the chunks.
+  volumeClaimTemplates:
+    - metadata:
+        name: chunks
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.agent.persistence.storageClassName }}
+        storageClassName: {{ .Values.agent.persistence.storageClassName | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.agent.persistence.size | quote }}
+  {{- end }}
+{{- if and .Values.agent.persistence.enabled (eq (.Values.agent.workloadKind | default "Deployment") "Deployment") }}
 ---
+# Standalone PVC for Deployment mode (single PVC shared by all replicas — only safe with RWX).
+# Not used by StatefulSet (which has its own per-pod PVCs via volumeClaimTemplates).
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
