@@ -31,7 +31,7 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    tag: "sha256:84af26db0fa61f143417118d0fbb36d0465c0a9e50f430d356b16ff94d1e3239"
+    tag: "sha256:3483266c622e0001558d1f42ffc69ecf2b846d6c1e63aefb1c59807eed834bdc"
     pullPolicy: Always
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
@@ -149,14 +149,25 @@ agent:
     forcePathStyle: true
     useSsl: false
   bucketCache:
-    maxGb: 0             # 0 = auto-detect: 10% of node memory (cold searches use RocksDB block cache at 25%)
+    # Demo tuning (2026-05-20): explicit 2 GiB L1 bucket cache per agent.
+    # Auto-detect (0) reads cgroup memory, which on these nodes lands at
+    # ~1.4 GiB → barely any L1. With 32–64 GiB physical RAM and agents
+    # idling at ~1.1 GiB used out of a 14 GiB limit, we have huge headroom.
+    # 2 GiB × 6 agents = 12 GiB cluster-wide bucket RAM → vector search
+    # runs as in-memory SIMD instead of falling through to the RocksDB
+    # iterator. Big win on warm runs.
+    maxGb: 2
     evictionIntervalSec: 10  # Kept for API compat, background evictor uses watermarks now
     highWaterPct: "0.70"     # Background eviction starts when usage > 70% of budget
     lowWaterPct: "0.50"      # Background eviction stops when usage drops to 50% (20% headroom for bursts)
     hardCeilingPct: "0.90"   # Emergency inline eviction at 90% — drains back to 50%
   chunkCache:
-    sizeMb: 0            # 0 = auto-detect: 5% of node memory (system guard keeps 10% free via /proc/meminfo)
-    ttlMinutes: 5
+    # Demo tuning (2026-05-20): explicit 1 GiB MRU chunk cache per agent.
+    # Stops GetChunkByReferenceAsync from hitting RocksDB on the hot path
+    # (EncodeVerify, decoder base-chunk fetch, mosaic donor fetch). At
+    # 1 GiB × 6 agents = 6 GiB cluster-wide, trivial against 256 GiB.
+    sizeMb: 1024
+    ttlMinutes: 30  # Was 5 — too short to survive a multi-window run
   laneIndex:
     enabled: "false"           # Lane hash index for L2 global sub-chunk search
     hashBits: "16"            # Mini-LSH bitstring width
@@ -228,17 +239,27 @@ gateway:
 
 cross:
   replicaCount: 2
-  windowedThresholdMB: 16     # Match client's windowed threshold
-  windowSizeMB: 4             # Match client's 4MB block size
+  # Demo tuning (2026-05-20): bump windowed mode to 64 MB blocks so each
+  # search-store-encode-store roundtrip carries 16× more data. The 4 MB
+  # setting was a stability ceiling from the bug-hunt; with EncodeVerify +
+  # the RocksDbWriteBatcher flush race fix + ghost-record healing landed,
+  # there's no reason to throttle window size. Each cross pod has 8 GiB
+  # heap; worst case 4 windows × 64 MB = 256 MB in flight per pod.
+  windowedThresholdMB: 64
+  windowSizeMB: 64
   # ── Integrity smoketest ──
   # Compress → immediate in-process decompress → byte-diff against original.
-  # When mismatched, logs the EXACT chunk index, encode case, and the
-  # discrepancy between what the encoder thought the base bytes were and
-  # what the agent serves for that ref right now. Doubles compress latency.
-  integrityDecompressSmoketest: true
+  # Indispensable during the missing-base-chunk hunt; with all the fixes
+  # landed it's pure overhead (literally doubles compress wall time). Turn
+  # back on for the next major change. Off for tomorrow's demo.
+  integrityDecompressSmoketest: false
   maxUploadBytes: "107374182400"  # 100 GiB max upload (windowed handles RAM)
-  maxConcurrent: 2            # 4 global blocks ÷ 2 pods = 2 per pod
-  pipelineParallelism: 2      # Match reduced concurrency
+  # Demo tuning (2026-05-20): each cross pod has an 8000m CPU limit and
+  # was only chewing 10–17m at idle in the live cluster — pure CPU floor.
+  # 4 concurrent windows × 2 pods = 8 windows in flight, which matches the
+  # client's MaxConcurrentBlocks=8 default exactly.
+  maxConcurrent: 4
+  pipelineParallelism: 4
   searchTopK: 10                  # Top-K candidates from L1 search (multi-reference diagnostics)
   gc:
     conserveMemory: "5"           # Was 9 — too aggressive, caused GC thrash on 64 MB blocks
@@ -256,7 +277,12 @@ cross:
   # silently hold throttle slots forever (the failure mode that came back
   # today after yesterday's deadline removal).
   agentThrottle:
-    maxInflight: "4"
+    # Demo tuning (2026-05-20): 6 in-flight per agent (was 4). With 6 agents
+    # idling at <10m CPU and 1.1 GiB RAM in the live cluster, the throttle
+    # was an artificial ceiling well below what the agents can actually
+    # serve. Healthy BatchGet stays in the 10–400 ms band so the breaker
+    # behaviour is unchanged.
+    maxInflight: "6"
     maxAttempts: "5"
     breakerFailureThreshold: "5"
     breakerCooldownSec: "30"

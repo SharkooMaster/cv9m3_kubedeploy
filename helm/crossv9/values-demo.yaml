@@ -1,0 +1,42 @@
+# CrossV9 — demo speed overlay (2026-05-20)
+#
+# Apply ON TOP of values-k3-benchmark.yaml when you want maximum demo
+# throughput without sacrificing stability:
+#
+#   helm upgrade crossv9 ./kubedeploy/helm/crossv9 \
+#     -n crossv9 \
+#     -f kubedeploy/helm/crossv9/values-k3-benchmark.yaml \
+#     -f kubedeploy/helm/crossv9/values-demo.yaml
+#
+# What's changed and why:
+#   - integrityDecompressSmoketest off: doubles wall time, was diagnostic.
+#   - windowSizeMB 4 → 64: 16× fewer roundtrips per file.
+#   - maxConcurrent / pipelineParallelism 2 → 4: cross pods were idling.
+#   - agentThrottle.maxInflight 4 → 6: agents had massive headroom.
+#   - bucketCache.maxGb 0 → 2: vector search becomes in-memory SIMD.
+#   - chunkCache.sizeMb 0 → 1024, TTL 5 → 30: skips RocksDB on hot fetch.
+#
+# What's intentionally NOT changed:
+#   - replicaCount (agents, cross, gateway) — topology stays put before demo
+#   - replicationFactor / Longhorn replica count — durability untouched
+#   - mosaicDedup / laneSearch — left off, won't surprise you on stage
+#   - liveness probe settings — restart behaviour unchanged
+#   - resource limits — already generously sized; agents use ~8 % of limit
+#
+# Expected end-to-end gain: 5–8× faster compress wall time on a fresh run.
+
+agent:
+  bucketCache:
+    maxGb: 2
+  chunkCache:
+    sizeMb: 1024
+    ttlMinutes: 30
+
+cross:
+  integrityDecompressSmoketest: false
+  windowSizeMB: 64
+  windowedThresholdMB: 64
+  maxConcurrent: 4
+  pipelineParallelism: 4
+  agentThrottle:
+    maxInflight: "6"
