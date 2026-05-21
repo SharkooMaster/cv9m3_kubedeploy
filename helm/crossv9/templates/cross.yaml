@@ -35,6 +35,9 @@ metadata:
     {{- include "crossv9.labels" . | nindent 4 }}
 spec:
   clusterIP: None
+  # Same reasoning as gateway-headless: keep DNS resolvable through the
+  # readiness gate so peer services don't get NXDOMAIN during rolls.
+  publishNotReadyAddresses: true
   ports:
     - name: grpc
       port: 5000

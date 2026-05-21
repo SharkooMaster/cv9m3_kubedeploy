@@ -25,6 +25,13 @@ metadata:
     {{- include "crossv9.labels" . | nindent 4 }}
 spec:
   clusterIP: None
+  # Publish pod IPs to DNS even before readinessProbe passes. Without this the
+  # cross deployment hits "Name or service not known" for ~10–30 s every time
+  # the gateway is still starting (or rolling), since headless services drop
+  # NotReady endpoints from DNS by default. The gateway gRPC channel itself
+  # has retry/keep-alive policies — letting it see the pod IP early lets it
+  # back off cleanly instead of returning a hard SocketException to callers.
+  publishNotReadyAddresses: true
   ports:
     - name: grpc
       port: 5000

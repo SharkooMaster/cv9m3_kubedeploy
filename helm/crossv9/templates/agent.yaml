@@ -25,6 +25,12 @@ metadata:
     {{- include "crossv9.labels" . | nindent 4 }}
 spec:
   clusterIP: None
+  # Publish pod IPs to DNS even before readinessProbe passes. Without this,
+  # cross/gateway intermittently see NXDOMAIN ("Name or service not known")
+  # while agents are starting or rolling. The gRPC client retries on
+  # Unavailable, but only if DNS actually returns *something* — a hard
+  # NXDOMAIN bubbles up as a SocketException the retry policy can't recover.
+  publishNotReadyAddresses: true
   ports:
     - name: grpc
       port: 5000
