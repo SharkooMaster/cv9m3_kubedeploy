@@ -25,12 +25,15 @@ metadata:
     {{- include "crossv9.labels" . | nindent 4 }}
 spec:
   clusterIP: None
-  # Publish pod IPs to DNS even before readinessProbe passes. Without this,
-  # cross/gateway intermittently see NXDOMAIN ("Name or service not known")
-  # while agents are starting or rolling. The gRPC client retries on
-  # Unavailable, but only if DNS actually returns *something* — a hard
-  # NXDOMAIN bubbles up as a SocketException the retry policy can't recover.
-  publishNotReadyAddresses: true
+  # Intentionally NOT publishNotReadyAddresses here. The agent's /ready gate
+  # waits for BucketCacheManager warmup to finish; before that, even though
+  # Kestrel is bound on :5000, the gRPC handlers are GC/IO-saturated by the
+  # warmup work and routinely miss the gateway's 3 s GetNodeInfo deadline.
+  # Surfacing those pod IPs early caused the gateway to "fall back to IP
+  # routing" with a list of unready agents and serve cross requests against
+  # them — the user-visible "gateway won't start" symptom. Keeping the
+  # readiness gate ensures the headless service only points at agents that
+  # can actually answer right now.
   ports:
     - name: grpc
       port: 5000
