@@ -4,6 +4,18 @@ global:
   nameOverride: ""
   fullnameOverride: ""
 
+# ── Dev tooling shortcuts ────────────────────────────────────────────────
+# These exist so the inner-loop "wipe and restart" cycle stays fast in
+# development without needing to touch the structural workloadKind /
+# persistence values.
+dev:
+  # When true, agent pods mount an emptyDir for /data/chunks instead of
+  # PVCs — even under StatefulSet. That trades durability for speed: every
+  # pod restart wipes data and there's no PVC provisioning delay. Pair
+  # with `POST /admin/cluster/wipe` on cross to reset etcd membership and
+  # pod chunk stores in one step. NEVER enable in production.
+  fastReset: false
+
 # ── Longhorn subchart ────────────────────────────────────────────────────
 # Bundled as a dependency in Chart.yaml. When enabled, our chart installs
 # Longhorn into the same release alongside the application. Disable this
@@ -181,9 +193,27 @@ agent:
   #     - Only works with an RWX storage class. RocksDB does not tolerate
   #       multiple writers on the same files, so this mode is effectively
   #       limited to replicaCount=1.
-  workloadKind: Deployment
-  replicaCount: 3
+  # Default flipped to StatefulSet for the replicated-routing architecture.
+  # The consistent-hash ring uses pod names (agent-0, agent-1, ...) as
+  # vnode owners; only StatefulSets give those names stable identities
+  # that survive reschedules. With Deployment, a pod restart re-assigns
+  # vnodes and triggers a needless rebalance.
+  workloadKind: StatefulSet
+  # 5 = R=3 replicas + 2 spare → a single agent failure leaves a healthy
+  # ring; a two-agent failure still keeps R=3 quorum reachable for most
+  # buckets. Bump higher for larger working sets.
+  replicaCount: 5
   resources: {}
+  # ── Replication knobs (read by cross/gateway via env) ──
+  # replicationFactor: how many copies of each chunk live across agents
+  # writeQuorum: minimum acks required for a write to be considered durable
+  # vnodesPerAgent: spread per agent on the consistent-hash ring (higher
+  #   = smoother load distribution, modest memory cost). Communicated to
+  #   cross/gateway via /agents/<podName>.vnodes; agents publish this
+  #   value when they self-register in etcd.
+  replicationFactor: 3
+  writeQuorum: 2
+  vnodesPerAgent: 256
   storageBackend: local # local, s3, gcs, rocksdb
   rocksdb:
     path: "/data/chunks/rocksdb"
@@ -221,6 +251,16 @@ agent:
     enabled: false
     storageClassName: ""
     size: 20Gi
+  # PodDisruptionBudget — protects R=3 quorum during voluntary
+  # disruptions (node drains, rolling upgrades). Off by default;
+  # enable in production overlays.
+  pdb:
+    enabled: false
+    # maxUnavailable: 1   # default if unset
+  # Anti-entropy toggles (read at agent startup; see
+  # AntiEntropyService for the algorithm). Off by default.
+  antiEntropyEnabled: "false"
+  antiEntropyAutoRepair: "false"
 
 gateway:
   replicaCount: 1
@@ -228,9 +268,40 @@ gateway:
   storeTimeoutSec: 30
   streamConcurrency: 8
   resources: {}
+  # Run the rebalance coordinator on this gateway pod. Default true
+  # because the implementation is idempotent and the loop is cheap.
+  # In a multi-gateway deployment, you can pin this to a single pod
+  # by templating only one of N gateways with this var set to true.
+  rebalanceCoordinatorEnabled: "true"
+  pdb:
+    enabled: false
 
 cross:
   replicaCount: 1
+  # Horizontal Pod Autoscaler for cross. Off by default — turn on to
+  # let the cluster scale cross between minReplicas and maxReplicas
+  # based on CPU. With NGINX-Ingress's gRPC stream-level round-robin
+  # in front of cross (see cross.ingress below), client connections
+  # spread evenly across pods automatically.
+  hpa:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 70
+    scaleDownStabilizationSeconds: 300
+  # gRPC ingress for cross. Without an ingress, a single LoadBalancer
+  # service pins external clients to one cross pod (HTTP/2 multiplexes
+  # all RPCs onto one TCP connection per client). NGINX-Ingress with
+  # backend-protocol=GRPC does HTTP/2 stream-level round-robin across
+  # cross pods, which is what makes the HPA actually do anything.
+  ingress:
+    enabled: false
+    className: "nginx"
+    host: ""        # e.g. "cross.example.com"
+    annotations: {} # populated by values-clevercloud.yaml etc.
+    tls: []         # entries: [{ secretName, hosts: [...] }]
+  pdb:
+    enabled: false
   windowedThresholdMB: 256
   windowSizeMB: 64
   maxUploadBytes: "107374182400"

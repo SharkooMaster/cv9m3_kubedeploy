@@ -1,0 +1,84 @@
+# PodDisruptionBudgets for cross/gateway/agent.
+#
+# Why each one matters:
+#   - agent: a single voluntary disruption (kubectl drain, node
+#     maintenance) that takes 2 of 5 agents down at once would drop
+#     R=3 quorum to 1 healthy replica per write, which violates the
+#     "writes always have W=2 acks" guarantee. Capping
+#     maxUnavailable=1 keeps quorum reachable during planned
+#     maintenance.
+#   - gateway: stateless but the rebalance coordinator runs here.
+#     Letting both replicas go at once would leave the cluster
+#     without a coordinator during a rebalance.
+#   - cross: stateless and HPA-managed; PDB prevents the cluster
+#     from voluntarily dropping below minAvailable, which would
+#     surface as "no cross pod can serve compression" during a
+#     rolling node restart.
+{{- if .Values.cross.pdb }}
+{{- if .Values.cross.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "crossv9.fullname" . }}-cross
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cross
+spec:
+  {{- if hasKey .Values.cross.pdb "minAvailable" }}
+  minAvailable: {{ .Values.cross.pdb.minAvailable }}
+  {{- else }}
+  maxUnavailable: 1
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: cross
+      {{- include "crossv9.labels" . | nindent 6 }}
+---
+{{- end }}
+{{- end }}
+{{- if .Values.gateway.pdb }}
+{{- if .Values.gateway.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "crossv9.fullname" . }}-gateway
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  {{- if hasKey .Values.gateway.pdb "minAvailable" }}
+  minAvailable: {{ .Values.gateway.pdb.minAvailable }}
+  {{- else }}
+  maxUnavailable: 1
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: gateway
+      {{- include "crossv9.labels" . | nindent 6 }}
+---
+{{- end }}
+{{- end }}
+{{- if .Values.agent.pdb }}
+{{- if .Values.agent.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "crossv9.fullname" . }}-agent
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+spec:
+  {{- if hasKey .Values.agent.pdb "minAvailable" }}
+  minAvailable: {{ .Values.agent.pdb.minAvailable }}
+  {{- else }}
+  # With R=3 we tolerate one agent down without dropping write quorum;
+  # blocking voluntary disruption beyond that protects W=2 against
+  # planned maintenance. Bump to 2 if you also have R=5.
+  maxUnavailable: 1
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: agent
+      {{- include "crossv9.labels" . | nindent 6 }}
+{{- end }}
+{{- end }}

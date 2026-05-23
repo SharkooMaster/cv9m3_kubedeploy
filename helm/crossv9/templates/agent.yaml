@@ -217,7 +217,22 @@ spec:
             - name: CHUNK_CACHE_TTL_MINUTES
               value: {{ .Values.agent.chunkCache.ttlMinutes | quote }}
             - name: AGENT_REPLICATION_FACTOR
-              value: {{ (default 2 .Values.agent.replicationFactor) | quote }}
+              value: {{ (default 3 .Values.agent.replicationFactor) | quote }}
+            - name: VNODES_PER_AGENT
+              value: {{ (default 256 .Values.agent.vnodesPerAgent) | quote }}
+            # Anti-entropy is opt-in. Default disabled so a fresh deploy
+            # observes baseline behaviour first; flip on per-environment
+            # via values overlay once the rest of the cluster is healthy.
+            - name: ANTI_ENTROPY_ENABLED
+              value: {{ (default "false" .Values.agent.antiEntropyEnabled) | quote }}
+            - name: ANTI_ENTROPY_AUTO_REPAIR
+              value: {{ (default "false" .Values.agent.antiEntropyAutoRepair) | quote }}
+            {{- if and .Values.dev .Values.dev.fastReset }}
+            # Enables POST /admin/wipe. Tied to dev.fastReset because the
+            # endpoint is harmless without an emptyDir volume to wipe.
+            - name: ADMIN_DESTRUCTIVE_ENABLED
+              value: "true"
+            {{- end }}
             - name: AGENT_HEADLESS_SVC
               value: "{{ include "crossv9.fullname" . }}-agent-headless.{{ .Release.Namespace }}.svc.cluster.local"
             - name: CHUNK_SIZE
@@ -265,14 +280,18 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-      {{- if ne (.Values.agent.workloadKind | default "Deployment") "StatefulSet" }}
-      # Deployment / DaemonSet branch — the StatefulSet branch handles its
-      # storage via volumeClaimTemplates below (one PVC per pod, named by
-      # pod ordinal). Keeping the legacy volume modes here lets you roll
-      # back to DaemonSet+hostPath if Longhorn misbehaves.
+      {{- if or (ne (.Values.agent.workloadKind | default "Deployment") "StatefulSet") (and .Values.dev .Values.dev.fastReset) }}
+      # Deployment / DaemonSet branch + dev.fastReset escape hatch.
+      #
+      # dev.fastReset=true forces emptyDir storage even under StatefulSet.
+      # That's the inner-loop dev mode: every pod restart wipes data, no
+      # PVC provisioning delay, no leftovers from a previous test run.
+      # NOT for production — replication relies on persistent storage.
       volumes:
         - name: chunks
-          {{- if and .Values.agent.persistence.enabled (eq (.Values.agent.workloadKind | default "Deployment") "DaemonSet") }}
+          {{- if and .Values.dev .Values.dev.fastReset }}
+          emptyDir: {}
+          {{- else if and .Values.agent.persistence.enabled (eq (.Values.agent.workloadKind | default "Deployment") "DaemonSet") }}
           hostPath:
             path: {{ .Values.agent.persistence.hostPath | default "/var/lib/crossv9/chunks" }}
             type: DirectoryOrCreate
@@ -283,7 +302,7 @@ spec:
           emptyDir: {}
           {{- end }}
       {{- end }}
-  {{- if eq (.Values.agent.workloadKind | default "Deployment") "StatefulSet" }}
+  {{- if and (eq (.Values.agent.workloadKind | default "Deployment") "StatefulSet") (not (and .Values.dev .Values.dev.fastReset)) }}
   # One Longhorn RWO volume per pod ordinal. Longhorn keeps each volume
   # bound to its owning pod across reschedules, so chunks stored by
   # crossv9-agent-0 stay reachable from crossv9-agent-0 no matter which

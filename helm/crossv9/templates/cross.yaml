@@ -156,6 +156,19 @@ spec:
             - name: ETCD_ENDPOINT
               value: {{ $etcdEndpoint | quote }}
             {{- end }}
+            # ── Replication knobs ──
+            # REPLICATION_FACTOR: how many replicas each chunk gets
+            # WRITE_QUORUM: minimum acks required for a write to succeed
+            # See cross/src/Routing/ReplicaResolver.cs for defaults if unset.
+            - name: REPLICATION_FACTOR
+              value: {{ (default 3 .Values.agent.replicationFactor) | quote }}
+            - name: WRITE_QUORUM
+              value: {{ (default 2 .Values.agent.writeQuorum) | quote }}
+            {{- if and .Values.dev .Values.dev.fastReset }}
+            # dev.fastReset enables POST /admin/cluster/wipe. Off in production.
+            - name: ADMIN_DESTRUCTIVE_ENABLED
+              value: "true"
+            {{- end }}
             - name: CHUNK_SIZE
               value: {{ .Values.chunkSize | default 5120 | quote }}
             - name: CROSS_WINDOWED_THRESHOLD_MB

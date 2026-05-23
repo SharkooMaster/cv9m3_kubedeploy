@@ -1,0 +1,56 @@
+{{- if .Values.cross.ingress.enabled -}}
+# Cross gRPC ingress.
+#
+# Why an ingress (not a plain LoadBalancer in front of the cross service):
+#   gRPC multiplexes RPCs onto a single HTTP/2 TCP connection per client.
+#   A vanilla L4 LoadBalancer routes by TCP connection, so all of a
+#   client's RPCs pin to whichever cross pod won the SYN — defeating the
+#   point of horizontal scaling. NGINX-Ingress with backend-protocol=GRPC
+#   does HTTP/2 stream-level round-robin, which spreads each client's
+#   individual RPCs across pods even when they share one TCP connection.
+#
+# Notes:
+#   - Setting `nginx.ingress.kubernetes.io/backend-protocol: GRPC` is
+#     required for HTTP/2 stream LB to engage. Without it, NGINX
+#     proxies the bytes opaquely and you're back to per-connection
+#     pinning.
+#   - We expose the gRPC port; HTTP (5001) goes through a separate
+#     ingress entry on the same controller if you want it (add a
+#     second host or path under cross.ingress.hosts).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "crossv9.fullname" . }}-cross-ingress
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cross-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"          # no upload cap (large file uploads)
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"    # long-lived gRPC streams
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    {{- with .Values.cross.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- if .Values.cross.ingress.className }}
+  ingressClassName: {{ .Values.cross.ingress.className | quote }}
+  {{- end }}
+  {{- with .Values.cross.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - {{- if .Values.cross.ingress.host }}
+      host: {{ .Values.cross.ingress.host | quote }}
+      {{- end }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "crossv9.fullname" . }}-cross
+                port:
+                  number: {{ .Values.cross.service.grpcPort | default 5000 }}
+{{- end }}

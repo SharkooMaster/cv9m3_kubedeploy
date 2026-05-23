@@ -1,0 +1,41 @@
+{{- if .Values.cross.hpa.enabled -}}
+# Horizontal Pod Autoscaler for cross.
+#
+# CPU target is the simple knob — cross is CPU-bound during compression
+# (vectorize + diff-encode + serialize), so CPU% tracks load reasonably.
+# When you have Prometheus adapter wired in, swap the metrics list for
+# a custom metric like "active_jobs_per_pod" via the External or Pods
+# metric sources.
+#
+# Stabilization window on scale-down avoids flapping when traffic
+# dips for a few seconds. Scale-up is left at the K8s default (15s)
+# because we want to react to bursts quickly.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "crossv9.fullname" . }}-cross
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cross
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "crossv9.fullname" . }}-cross
+  minReplicas: {{ .Values.cross.hpa.minReplicas }}
+  maxReplicas: {{ .Values.cross.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.cross.hpa.targetCPUUtilizationPercentage }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.cross.hpa.scaleDownStabilizationSeconds }}
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+{{- end }}

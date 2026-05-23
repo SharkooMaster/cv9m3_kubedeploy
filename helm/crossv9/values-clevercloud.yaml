@@ -1,0 +1,139 @@
+# Clever Cloud Kubernetes Engine overlay.
+#
+# Apply on top of the default values.yaml, e.g.:
+#   helm install cross . -f values.yaml -f values-clevercloud.yaml
+#
+# Most of these knobs are placeholders we fill in once we have the
+# Clever Cloud cluster in front of us — `kubectl get sc`,
+# `kubectl get ingressclass`, and the LB controller's annotation
+# vocabulary (typically inherited from the upstream NGINX-Ingress).
+#
+# What's intentionally already set:
+#   - Replicated agent fleet (StatefulSet, R=3).
+#   - HPA + ingress on cross to spread external client load.
+#   - PDBs everywhere so Clever's node maintenance can't drop
+#     replicas faster than the rebalance coordinator can react.
+#   - etcd kept single-pod (membership-only data; trade complexity
+#     for the small risk of brief unavailability during etcd pod
+#     reschedules).
+
+global:
+  fullnameOverride: "crossv9"
+
+# Longhorn isn't shipped here — Clever Cloud provides its own CSI.
+# Set storageClassName below to whatever `kubectl get sc` reports.
+longhorn:
+  enabled: false
+
+# ── etcd (membership) ───────────────────────────────────────────────
+etcd:
+  enabled: true
+  persistence:
+    enabled: true
+    storageClassName: ""    # TODO(clevercloud): set to the cluster's CSI class
+    size: "1Gi"
+
+# ── Postgres + Redis ────────────────────────────────────────────────
+# Both are bundled by default; if you front-end with Clever's
+# managed addons, set externalPostgres / externalRedis instead and
+# disable the in-chart copies.
+postgres:
+  enabled: true
+  persistence:
+    enabled: true
+    storageClassName: ""    # TODO(clevercloud)
+    size: 20Gi
+
+redis:
+  persistence:
+    enabled: true
+    storageClassName: ""    # TODO(clevercloud)
+    size: 20Gi
+
+# ── Agent: replicated fleet on StatefulSet ──────────────────────────
+agent:
+  workloadKind: StatefulSet
+  replicaCount: 5            # R=3 + 2 spare → tolerates a single agent failure cleanly
+  replicationFactor: 3
+  writeQuorum: 2
+  vnodesPerAgent: 256
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "4Gi"
+    limits:
+      cpu: "4000m"
+      memory: "16Gi"
+  persistence:
+    enabled: true
+    storageClassName: ""    # TODO(clevercloud): block volume CSI class
+    size: 50Gi
+  pdb:
+    enabled: true
+    # maxUnavailable: 1     # default protects R=3 quorum
+  # Anti-entropy off until the cluster has settled — flip on after
+  # initial deploy, observe divergence reports for a day, then flip
+  # auto-repair on.
+  antiEntropyEnabled: "false"
+  antiEntropyAutoRepair: "false"
+
+# ── Gateway ─────────────────────────────────────────────────────────
+gateway:
+  replicaCount: 2            # one runs the rebalance coordinator; the other is hot standby
+  rebalanceCoordinatorEnabled: "true"
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "4Gi"
+  pdb:
+    enabled: true
+
+# ── Cross: scale-out via HPA + gRPC ingress ─────────────────────────
+cross:
+  replicaCount: 2            # initial; HPA takes over from here
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "2Gi"
+    limits:
+      cpu: "4000m"
+      memory: "8Gi"
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 70
+    scaleDownStabilizationSeconds: 300
+  ingress:
+    enabled: true
+    className: "nginx"
+    # TODO(clevercloud): cross-grpc.<your-domain>
+    host: ""
+    annotations:
+      # NGINX-Ingress annotations for gRPC stream-level round-robin.
+      # backend-protocol=GRPC is the load-bearing one; the timeouts
+      # let large file uploads through (cross's compress endpoint
+      # can hold a stream open for minutes).
+      nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+      nginx.ingress.kubernetes.io/proxy-body-size: "0"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+      # TODO(clevercloud): if Clever Cloud's ingress controller wants
+      # extra annotations (TLS cert reflection, regional pinning),
+      # add them here.
+    tls: []
+  pdb:
+    enabled: true
+
+# ── Control center (operator UI) ────────────────────────────────────
+controlcenter:
+  enabled: true
+  uiService:
+    type: LoadBalancer
+    annotations: {}         # TODO(clevercloud): LB controller specifics
+  persistence:
+    storageClassName: ""    # TODO(clevercloud)
+    size: "20Gi"
