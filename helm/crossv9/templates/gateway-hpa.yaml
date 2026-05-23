@@ -1,0 +1,80 @@
+{{- if .Values.gateway.hpa.enabled -}}
+# Horizontal Pod Autoscaler for the request-handling gateway
+# Deployment.
+#
+# WHY CPU:
+#   Gateway pods do compression-stage work (V7 encode tail, batch
+#   serialization), gRPC fan-out to R agent replicas, and write
+#   quorum collection. All of those are CPU-bound, so CPU% tracks
+#   per-pod load reasonably. Memory is bounded (caches + in-flight
+#   buffers) and doesn't track concurrency well, so memory-target
+#   would react too late to a request burst.
+#
+# WHY THIS REQUIRES gatewayCoordinator.enabled=true (CRITICAL):
+#   The rebalance coordinator's RetirementTracker lives in process
+#   memory. With multiple gateway replicas each running their own
+#   coordinator, the agent's /admin/retirement-status poll
+#   load-balances across them and might hit a pod that never saw
+#   the drain — returning complete=true while another pod still
+#   has work pending. Drain becomes unsafe.
+#
+#   When gatewayCoordinator.enabled=true the chart spins up a
+#   single-replica gateway-coordinator Deployment that owns the
+#   tracker, and the agent's GATEWAY_HTTP_URL is repointed at the
+#   coordinator's dedicated service so retirement-status always
+#   hits the one pod with authoritative state. The request-path
+#   gateway pods scale freely under HPA without affecting drain
+#   correctness.
+#
+# Render-time guard at the bottom of this file makes the contract
+# enforceable: helm install fails if HPA is on but the coordinator
+# split isn't, instead of letting an operator paint themselves into
+# a corner where drain-during-scale-down silently corrupts data.
+
+{{- if and .Values.gateway.hpa.enabled (not (and .Values.gatewayCoordinator .Values.gatewayCoordinator.enabled)) }}
+{{ fail "gateway.hpa.enabled=true requires gatewayCoordinator.enabled=true. Without splitting the coordinator out of the request-handling gateway Deployment, multi-replica scaling produces racing coordinators and the agent's /admin/retirement-status poll can land on a pod with stale or absent tracker state, letting an agent terminate before its replicas are restored. Set gatewayCoordinator.enabled=true to proceed." }}
+{{- end }}
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "crossv9.fullname" . }}-gateway
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    # Only the request-handling Deployment is scaled. The
+    # gateway-coordinator Deployment is fixed at replicas=1 and is
+    # NEVER an HPA target.
+    name: {{ include "crossv9.fullname" . }}-gateway
+  minReplicas: {{ .Values.gateway.hpa.minReplicas }}
+  maxReplicas: {{ .Values.gateway.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.gateway.hpa.targetCPUUtilizationPercentage }}
+  behavior:
+    scaleUp:
+      # Burst-absorption: react quickly when ingest spikes. Limited
+      # to 100% per minute (i.e. doubling) so we don't overshoot
+      # capacity on a single brief peak.
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+    scaleDown:
+      # Patient on the way down: avoid flapping when traffic dips
+      # for tens of seconds. Default 5 minutes.
+      stabilizationWindowSeconds: {{ default 300 .Values.gateway.hpa.scaleDownStabilizationWindowSeconds }}
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+{{- end }}

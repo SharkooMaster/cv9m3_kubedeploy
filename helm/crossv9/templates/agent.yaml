@@ -86,6 +86,13 @@ spec:
         - name: {{ . | quote }}
         {{- end }}
       {{- end }}
+      {{- if and .Values.agent.retirement .Values.agent.retirement.enabled }}
+      # Give the preStop drain hook headroom. Default 600s = 10 minutes,
+      # which is long enough for a few-GB chunk store to fan out to all
+      # surviving peers. Tune via agent.retirement.timeoutSeconds.
+      # When retirement is disabled, k8s falls back to its 30s default.
+      terminationGracePeriodSeconds: {{ default 600 .Values.agent.retirement.timeoutSeconds }}
+      {{- end }}
       containers:
         - name: agent
           image: "{{ .Values.images.agent.repository }}{{ if hasPrefix "sha256:" .Values.images.agent.tag }}@{{ else }}:{{ end }}{{ .Values.images.agent.tag }}"
@@ -233,6 +240,26 @@ spec:
             - name: ADMIN_DESTRUCTIVE_ENABLED
               value: "true"
             {{- end }}
+            # Gateway URL used by the agent's POST /admin/retire endpoint
+            # to poll for adoption completion during a drain. The agent
+            # blocks the preStop hook until the gateway reports R copies
+            # of the leaving pod's vnodes exist on surviving peers.
+            #
+            # When gatewayCoordinator.enabled=true the chart runs a
+            # singleton coordinator deployment behind a dedicated
+            # ClusterIP service, and we point the agent here so its
+            # retirement-status polls always reach the pod with
+            # authoritative tracker state. With a multi-replica request
+            # gateway and per-pod tracker memory, that pod-pinning is
+            # what makes drain correct under load.
+            - name: GATEWAY_HTTP_URL
+              {{- if and .Values.gatewayCoordinator .Values.gatewayCoordinator.enabled }}
+              value: "http://{{ include "crossv9.fullname" . }}-gateway-coordinator.{{ .Release.Namespace }}.svc.cluster.local:5001"
+              {{- else }}
+              value: "http://{{ include "crossv9.fullname" . }}-gateway.{{ .Release.Namespace }}.svc.cluster.local:5001"
+              {{- end }}
+            - name: RETIREMENT_TIMEOUT_SECONDS
+              value: {{ (default 600 (and .Values.agent.retirement .Values.agent.retirement.timeoutSeconds)) | quote }}
             - name: AGENT_HEADLESS_SVC
               value: "{{ include "crossv9.fullname" . }}-agent-headless.{{ .Release.Namespace }}.svc.cluster.local"
             - name: CHUNK_SIZE
@@ -273,6 +300,44 @@ spec:
             periodSeconds: {{ default 30 .Values.agent.livenessProbe.periodSeconds }}
             timeoutSeconds: {{ default 10 .Values.agent.livenessProbe.timeoutSeconds }}
             failureThreshold: {{ default 6 .Values.agent.livenessProbe.failureThreshold }}
+          {{- if and .Values.agent.retirement .Values.agent.retirement.enabled }}
+          # ── Drain hook (HPA-safe scale-down) ────────────────────────
+          # Invoked by the kubelet BEFORE SIGTERM. POST /admin/retire on
+          # the agent flips its etcd status to "draining" and blocks
+          # until the gateway's RebalanceCoordinator confirms every
+          # vnode this pod owned has been copied to a surviving peer.
+          # Only after the hook returns 0 does the kubelet proceed with
+          # SIGTERM → terminationGracePeriodSeconds → SIGKILL.
+          #
+          # Without this hook a StatefulSet HPA scale-down would
+          # SIGTERM the highest-ordinal pod after ~30s of grace; any
+          # vnode whose primary was that pod would drop from R=3 to
+          # R=2, and a near-simultaneous second scale-down (HPA can
+          # do that) would push it to R=1. Single-failure data loss.
+          #
+          # Timeout: hook waits up to (terminationGracePeriodSeconds -
+          # 30s) for the drain to complete. The agent's retire endpoint
+          # itself observes RETIREMENT_TIMEOUT_SECONDS and returns 200
+          # even on partial drain so the hook doesn't loop in k8s.
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - sh
+                  - -c
+                  - |
+                    set -eu
+                    TIMEOUT={{ default 600 .Values.agent.retirement.timeoutSeconds }}
+                    HOOK_TIMEOUT=$((TIMEOUT - 30))
+                    echo "[preStop] starting drain (timeout=${HOOK_TIMEOUT}s)"
+                    # --max-time covers transport + body wait. We swallow non-zero
+                    # so a network blip on the local loopback doesn't keep k8s
+                    # blocking — surviving replicas + anti-entropy fill any gaps.
+                    curl -fsS --max-time "${HOOK_TIMEOUT}" -X POST \
+                      "http://127.0.0.1:5001/admin/retire?timeoutSec=${HOOK_TIMEOUT}" \
+                      -d '' || echo "[preStop] retire call returned non-zero; proceeding anyway"
+                    echo "[preStop] drain hook complete; ready for SIGTERM"
+          {{- end }}
           volumeMounts:
             - name: chunks
               mountPath: /data/chunks

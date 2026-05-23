@@ -1,0 +1,138 @@
+{{- if and .Values.gatewayCoordinator .Values.gatewayCoordinator.enabled -}}
+# ── Singleton Rebalance Coordinator ─────────────────────────────────
+#
+# Purpose:
+#   Splits the rebalance coordinator (and its in-memory
+#   RetirementTracker state) out of the request-handling gateway
+#   Deployment so the request-handling pods can be scaled
+#   horizontally via HPA without producing competing coordinators.
+#
+# Why this is required when gateway HPA is on:
+#   The coordinator's RetirementTracker lives in process memory.
+#   When an agent's preStop hook calls GET /admin/retirement-status
+#   on the gateway service, kube-proxy load-balances that request to
+#   *some* gateway pod. If multiple gateway pods are running their
+#   own coordinators, each has its own tracker view; a poll could
+#   land on a pod that never observed the drain (or one where the
+#   adoptions completed earlier than on the leader pod) and return
+#   complete=true while another pod still has work outstanding.
+#   That race lets the agent terminate before R is restored.
+#
+#   Confining the coordinator to a single pod and pointing the
+#   agent's GATEWAY_HTTP_URL at this pod's dedicated service kills
+#   the race entirely. The agent always polls the one pod that has
+#   authoritative state.
+#
+# Trade-off:
+#   On a coordinator-pod restart (rolling update, eviction) the
+#   in-memory tracker is lost, so any drain in flight at that moment
+#   would see "not tracked" → complete=true → premature exit.
+#   Mitigations:
+#     - Coordinator restarts are rare (single replica, no HPA).
+#     - PodDisruptionBudget (below) keeps it pinned during voluntary
+#       disruptions like node drains.
+#     - Anti-entropy (Phase 5) catches up on any data that was
+#       in-flight at the moment of restart.
+#   The principled long-term fix is to move tracker state into etcd;
+#   tracked as future work.
+#
+# Replicas: ALWAYS 1. We don't expose a replicaCount knob because
+# >1 would re-introduce the race we built this to avoid.
+#
+# Image / env: identical to the request-handling gateway via the
+# crossv9.gatewayEnv helper. The helper flips
+# REBALANCE_COORDINATOR_ENABLED to "true" on this pod and "false"
+# on the request-handling pods, so the dispatch loop only runs here.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "crossv9.fullname" . }}-gateway-coordinator
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway-coordinator
+spec:
+  type: ClusterIP
+  ports:
+    # gRPC port is exposed for parity with the request-handling
+    # gateway service; in practice nothing in the chart routes gRPC
+    # at the coordinator pod (cross/agent fan-out goes through the
+    # main gateway service). It's here only so /admin/retire RPCs
+    # from the agent during drain can reach the coordinator's
+    # GetAdoptionStatus dispatch loop, and so the pod still passes
+    # the same health checks as a normal gateway.
+    - name: grpc
+      port: 5000
+      targetPort: grpc
+    # http port is the one the agent actually polls during a drain
+    # for /admin/retirement-status. The coordinator pod is the only
+    # process with authoritative tracker state.
+    - name: http
+      port: 5001
+      targetPort: http
+  selector:
+    app.kubernetes.io/component: gateway-coordinator
+    {{- include "crossv9.labels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "crossv9.fullname" . }}-gateway-coordinator
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway-coordinator
+spec:
+  # Hardcoded to 1. NEVER expose this as a values knob: a value > 1
+  # re-introduces the multi-coordinator race that this whole template
+  # exists to avoid.
+  replicas: 1
+  # Recreate strategy because we want at most one coordinator pod
+  # alive at a time during rolling updates. RollingUpdate with
+  # maxSurge=1 would briefly run two coordinators side-by-side, which
+  # is exactly what we're trying to prevent.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: gateway-coordinator
+      {{- include "crossv9.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: gateway-coordinator
+        {{- include "crossv9.labels" . | nindent 8 }}
+    spec:
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- range .Values.imagePullSecrets }}
+        - name: {{ . | quote }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: gateway-coordinator
+          image: "{{ .Values.images.gateway.repository }}{{ if hasPrefix "sha256:" .Values.images.gateway.tag }}@{{ else }}:{{ end }}{{ .Values.images.gateway.tag }}"
+          imagePullPolicy: {{ .Values.images.gateway.pullPolicy }}
+          ports:
+            - name: grpc
+              containerPort: 5000
+            - name: http
+              containerPort: 5001
+          env:
+            {{- include "crossv9.gatewayEnv" (dict "root" . "coordinator" true) | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          {{- with (default .Values.gateway.resources .Values.gatewayCoordinator.resources) }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

@@ -214,7 +214,15 @@ agent:
   replicationFactor: 3
   writeQuorum: 2
   vnodesPerAgent: 256
-  storageBackend: local # local, s3, gcs, rocksdb
+  # storageBackend selects which INetworkFileStorageService the agent
+  # instantiates at startup. 'rocksdb' is the only mode that keeps
+  # bucket metadata and chunk bytes co-located in a single embedded
+  # store; every other mode (local/s3/gcs) routes bucket-key allocation
+  # through Postgres via INSERT INTO bucket_keys, which (a) blocks
+  # writes on a single Npgsql pool and tanks throughput at scale, and
+  # (b) requires a Postgres schema bootstrap that the chart doesn't
+  # ship — i.e. it's broken out of the box.
+  storageBackend: rocksdb # local, s3, gcs, rocksdb
   rocksdb:
     path: "/data/chunks/rocksdb"
   s3:
@@ -262,19 +270,108 @@ agent:
   antiEntropyEnabled: "false"
   antiEntropyAutoRepair: "false"
 
+  # ── Drain-on-scale-down (HPA safety) ─────────────────────────────────
+  # When retirement.enabled=true, the agent pod gets:
+  #   - A preStop hook that calls POST /admin/retire on localhost:5001
+  #     and blocks until the gateway confirms every vnode this pod owned
+  #     has been copied to a surviving peer.
+  #   - terminationGracePeriodSeconds = retirement.timeoutSeconds, so the
+  #     kubelet gives the drain hook the headroom to actually finish.
+  #
+  # This is the safety contract that makes HPA on a StatefulSet OK: the
+  # agent will not terminate until R=3 is restored. Off by default
+  # because in dev the 600s grace makes "kubectl delete pod" feel slow;
+  # turn it on for any production deployment, especially with
+  # agent.hpa.enabled=true.
+  retirement:
+    enabled: false
+    timeoutSeconds: 600  # 10 minutes — enough for a few-GB store to fan out
+
+  # ── Horizontal Pod Autoscaler ────────────────────────────────────────
+  # CPU is the wrong signal for agents (they're I/O-bound on RocksDB,
+  # not CPU). Memory tracks the bucket cache + chunk cache + LSM index
+  # blocks, which all grow with stored data — making it a reasonable
+  # proxy for "this pod is running out of capacity, add another".
+  #
+  # Critical: only enable this with retirement.enabled=true. Without the
+  # drain hook, an HPA scale-down can SIGTERM a pod before its vnodes
+  # have been copied elsewhere → R drops below the write quorum → data
+  # loss on a single subsequent failure.
+  hpa:
+    enabled: false
+    minReplicas: 3   # never go below R=3
+    maxReplicas: 10
+    # Memory-based: when the average pod memory utilisation crosses this
+    # %, k8s adds another agent ordinal. Tune lower (60-65%) for
+    # write-heavy workloads where bucket cache fills fast.
+    targetMemoryUtilizationPercentage: 70
+    # Conservative scale-down: only remove a pod every 5 minutes and at
+    # most 1 at a time. Combined with the drain hook this gives the
+    # cluster plenty of time to absorb the leaving pod's data before
+    # the next scale-down event.
+    scaleDownStabilizationWindowSeconds: 300
+    scaleDownMaxPodsPerMinute: 1
+
 gateway:
   replicaCount: 1
   searchTimeoutSec: 20
   storeTimeoutSec: 30
   streamConcurrency: 8
   resources: {}
-  # Run the rebalance coordinator on this gateway pod. Default true
-  # because the implementation is idempotent and the loop is cheap.
-  # In a multi-gateway deployment, you can pin this to a single pod
-  # by templating only one of N gateways with this var set to true.
+  # Used only when gatewayCoordinator.enabled=false (split mode off).
+  # When the split coordinator is on, the helper template ignores
+  # this value and forces "true" on the coordinator pod / "false" on
+  # the request-path pods. Keeping it for the small-deployment legacy
+  # case (replicaCount=1, no HPA) where a single pod handles both.
   rebalanceCoordinatorEnabled: "true"
   pdb:
     enabled: false
+
+  # ── Horizontal Pod Autoscaler ────────────────────────────────────────
+  # CPU-target HPA for the request-handling gateway Deployment.
+  # Gateway is CPU-bound during fan-out (compression tail, gRPC
+  # serialization, write-quorum collection), so CPU% tracks load.
+  #
+  # CRITICAL: enabling this requires gatewayCoordinator.enabled=true.
+  # The chart enforces this at template render time — without the
+  # coordinator split, multi-replica scaling produces racing
+  # coordinators and the agent's drain poll can land on a pod with
+  # stale tracker state, letting the pod terminate before R is
+  # restored. See gateway-hpa.yaml for the full reasoning.
+  hpa:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    scaleDownStabilizationWindowSeconds: 300
+
+# ── Singleton Rebalance Coordinator (split deployment) ────────────────
+# When enabled, the chart spins up a dedicated single-replica
+# Deployment + Service named "<release>-gateway-coordinator". That pod
+# is the only one running RebalanceCoordinator and holding
+# RetirementTracker state. The agent's GATEWAY_HTTP_URL is rewritten
+# to this dedicated service so /admin/retirement-status polls always
+# reach the authoritative pod.
+#
+# Why the split is mandatory under HPA:
+#   The tracker is in-memory and per-pod. Multiple coordinator pods
+#   independently dispatch handoffs and independently track them; an
+#   agent's drain poll could be load-balanced to a pod that never
+#   observed the drain and return complete=true → premature exit.
+#   Splitting confines tracker state to one pod and pinning the agent
+#   to it kills the race entirely.
+#
+# Trade-off:
+#   The coordinator pod is single-replica → a restart loses tracker
+#   state. With anti-entropy enabled the cluster recovers; without
+#   it, a drain in flight at the moment of restart sees "not tracked"
+#   and may exit early. Long-term fix: persist tracker state in etcd.
+gatewayCoordinator:
+  enabled: false
+  # Inherits gateway.resources by default. Override here if the
+  # coordinator pod needs different sizing (it shouldn't — it does
+  # exactly what one gateway pod does).
+  resources: {}
 
 cross:
   replicaCount: 1

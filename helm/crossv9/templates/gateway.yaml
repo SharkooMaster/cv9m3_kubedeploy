@@ -76,62 +76,14 @@ spec:
               containerPort: 5000
             - name: http
               containerPort: 5001
+          # Env is shared with the gateway-coordinator deployment via
+          # the crossv9.gatewayEnv helper. The helper flips
+          # REBALANCE_COORDINATOR_ENABLED based on whether the split
+          # mode (gatewayCoordinator.enabled=true) is on; on the
+          # request-path pods here it forces "false" in split mode so
+          # only the singleton coordinator dispatches handoffs.
           env:
-            - name: ASPNETCORE_ENVIRONMENT
-              value: "Development"
-            - name: MY_POD_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-            - name: MY_NODE_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.nodeName
-            - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              value: {{ .Values.observability.otel.endpoint | quote }}
-            - name: DOTNET_PerfMapEnabled
-              value: "1"
-            - name: COMPlus_PerfMapEnabled
-              value: "1"
-            - name: CROSS_MODE
-              value: {{ .Values.mode.crossMode | quote }}
-            - name: AGENTS_LOADBALANCER
-              value: {{ printf "%s-agent-headless" (include "crossv9.fullname" .) | quote }}
-            # ── etcd: gateway subscribes to the same /agents/ prefix as
-            # cross so both build identical ConsistentHashRing snapshots.
-            # If unset, gateway falls back to the legacy DNS+GetNodeInfo
-            # path (which has the cross-pod drift bug).
-            {{- $etcdEndpoint := "" }}
-            {{- if .Values.etcd.enabled }}
-              {{- $etcdEndpoint = printf "http://%s-etcd.%s.svc.cluster.local:2379" (include "crossv9.fullname" .) .Release.Namespace }}
-            {{- else if .Values.externalEtcd.endpoint }}
-              {{- $etcdEndpoint = .Values.externalEtcd.endpoint }}
-            {{- end }}
-            {{- if $etcdEndpoint }}
-            - name: ETCD_ENDPOINT
-              value: {{ $etcdEndpoint | quote }}
-            {{- end }}
-            # Replication factor + write quorum (gateway uses these for
-            # log-line annotation; canonical fan-out lives on cross side).
-            - name: REPLICATION_FACTOR
-              value: {{ (default 3 .Values.agent.replicationFactor) | quote }}
-            - name: WRITE_QUORUM
-              value: {{ (default 2 .Values.agent.writeQuorum) | quote }}
-            # Rebalance coordinator: exactly one gateway pod should set
-            # this to true. The chart defaults to enabling it on every
-            # gateway pod (the implementation is idempotent), but in a
-            # multi-gateway deployment you can pin it to a specific pod
-            # via a separate Deployment + selector.
-            - name: REBALANCE_COORDINATOR_ENABLED
-              value: {{ (default "true" .Values.gateway.rebalanceCoordinatorEnabled) | quote }}
-            - name: CHUNK_SIZE
-              value: {{ .Values.chunkSize | default 5120 | quote }}
-            - name: GATEWAY_SEARCH_TIMEOUT_SEC
-              value: {{ .Values.gateway.searchTimeoutSec | quote }}
-            - name: GATEWAY_STORE_TIMEOUT_SEC
-              value: {{ .Values.gateway.storeTimeoutSec | quote }}
-            - name: GATEWAY_STREAM_CONCURRENCY
-              value: {{ .Values.gateway.streamConcurrency | quote }}
+            {{- include "crossv9.gatewayEnv" (dict "root" . "coordinator" false) | nindent 12 }}
           readinessProbe:
             httpGet:
               path: /

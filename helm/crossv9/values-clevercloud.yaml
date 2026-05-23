@@ -57,6 +57,11 @@ agent:
   replicationFactor: 3
   writeQuorum: 2
   vnodesPerAgent: 256
+  # RocksDB is the only backend that keeps bucket metadata and chunk
+  # bytes in a single embedded store. The other backends require
+  # Postgres on the chunk write path, which neither scales nor
+  # bootstraps cleanly in this chart.
+  storageBackend: rocksdb
   resources:
     requests:
       cpu: "1000m"
@@ -77,10 +82,32 @@ agent:
   antiEntropyEnabled: "false"
   antiEntropyAutoRepair: "false"
 
+  # ── Drain-on-scale-down (HPA safety) ─────────────────────────────────
+  # Enabled in Clever Cloud overlay because we deploy with HPA on for
+  # the agent fleet. Without this, scale-down would drop replicas below
+  # the write quorum.
+  retirement:
+    enabled: true
+    timeoutSeconds: 600
+
+  # Memory-based HPA. Bucket cache + chunk cache + LSM blocks scale
+  # with stored data, so memory % is a reasonable "filling up" signal.
+  hpa:
+    enabled: true
+    minReplicas: 5
+    maxReplicas: 15
+    targetMemoryUtilizationPercentage: 70
+    scaleDownStabilizationWindowSeconds: 600  # 10 min — be patient
+    scaleDownMaxPodsPerMinute: 1
+
 # ── Gateway ─────────────────────────────────────────────────────────
+# Request-handling pods scale via HPA. The rebalance coordinator (and
+# the in-memory RetirementTracker) is split into a separate
+# single-replica gateway-coordinator deployment so multi-replica
+# scaling can't race on drain handoffs. The chart enforces the
+# split-when-HPA-on contract at render time.
 gateway:
-  replicaCount: 2            # one runs the rebalance coordinator; the other is hot standby
-  rebalanceCoordinatorEnabled: "true"
+  replicaCount: 2            # initial; HPA takes over from here
   resources:
     requests:
       cpu: "500m"
@@ -90,6 +117,24 @@ gateway:
       memory: "4Gi"
   pdb:
     enabled: true
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    scaleDownStabilizationWindowSeconds: 300
+
+# Singleton coordinator pod. Holds RetirementTracker state and runs
+# the dispatch loop. Required when gateway.hpa.enabled=true.
+gatewayCoordinator:
+  enabled: true
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
 
 # ── Cross: scale-out via HPA + gRPC ingress ─────────────────────────
 cross:
