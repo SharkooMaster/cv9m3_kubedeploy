@@ -1,0 +1,72 @@
+{{- if and .Values.controlcenter.enabled .Values.controlcenter.ingress.enabled -}}
+# ── Control-center HTTP ingress ──────────────────────────────────────
+#
+# Why an Ingress and not a second LoadBalancer Service:
+#   The chart already ships a -controlcenter-ui LoadBalancer Service
+#   that gives the operator UI its own external IP. On clusters where
+#   each LoadBalancer costs a public-IP allocation (Clever Cloud,
+#   most cloud k8s offerings), it's cheaper to share the existing
+#   NGINX-Ingress controller. A single LB IP fronts cross-ingress
+#   (gRPC) and this ingress (HTTP) by hostname.
+#
+# Why hostname-based and not path-based:
+#   Cross's gRPC ingress sets `backend-protocol: GRPC`, which makes
+#   NGINX talk gRPC to its upstream. If the control-center sat at a
+#   path prefix on the same host as cross, browser requests for the
+#   UI would be sent to the gRPC backend → 502s and confusing errors.
+#   Hostname-based routing keeps the two protocols cleanly separated:
+#     controlcenter.<your-domain>  → HTTP  → controlcenter pod (5001)
+#     cross-grpc.<your-domain>     → gRPC  → cross pods (5000)
+#
+# How to access without DNS:
+#   1. kubectl -n ingress-nginx get svc ingress-nginx-controller
+#      → note the EXTERNAL-IP (this is the NGINX LB IP)
+#   2. Add to /etc/hosts:
+#      <NGINX-LB-IP>  controlcenter.crossv9.local
+#   3. Open http://controlcenter.crossv9.local/ in your browser.
+#
+#   Or one-shot test from the CLI:
+#      curl -H "Host: controlcenter.crossv9.local" http://<NGINX-LB-IP>/api/fleet
+#
+# Why the ClusterIP (-controlcenter, port 5001) and not the
+# LoadBalancer Service:
+#   The Ingress backend should target a ClusterIP — every NGINX
+#   request rides the in-cluster ClusterIP. Pointing at the
+#   LoadBalancer Service would loop the traffic out and back through
+#   the cluster's external LB. The -controlcenter Service is
+#   ClusterIP and exposes both 5000 (gRPC, internal events) and 5001
+#   (HTTP UI/API).
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "crossv9.fullname" . }}-controlcenter-ingress
+  labels:
+    {{- include "crossv9.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controlcenter-ingress
+  {{- with .Values.controlcenter.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.controlcenter.ingress.className }}
+  ingressClassName: {{ .Values.controlcenter.ingress.className | quote }}
+  {{- end }}
+  {{- with .Values.controlcenter.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - {{- if .Values.controlcenter.ingress.host }}
+      host: {{ .Values.controlcenter.ingress.host | quote }}
+      {{- end }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "crossv9.fullname" . }}-controlcenter
+                port:
+                  number: 5001
+{{- end }}
