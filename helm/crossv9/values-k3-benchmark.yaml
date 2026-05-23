@@ -31,15 +31,15 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    tag: "sha256:bf1d33572d2051965650e66c9f973e1a6380293aa43d3d3e75b031ce094266a7"
+    tag: "sha256:a54c932deed9305bbd50e86d9138ba10bdc7c94244587cd7d5081e02dc1bb269"
     pullPolicy: Always
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
-    tag: "sha256:9fa89e596ea31b7aecbd811aded90879264019aab0afc9b29e686d0e8484c208"
+    tag: "sha256:54047185931f7bab29415107d4332a36700dd5eaaa26ca08c40fb9943ce7311b"
     pullPolicy: IfNotPresent
   cross:
     repository: "ghcr.io/sharkoomaster/crossv9-cross"
-    tag: "sha256:f7a0f979b828763aab7fa12d10914d3b26f35bf02975bc9a48d17fa6b30e7f5e"
+    tag: "sha256:f925297e3e70fdf56693873350f5b191bb0f15389eccc827bcc0f7670abb637f"
     pullPolicy: Always
   webinterface:
     repository: "ghcr.io/sharkoomaster/crossv9-webinterface"
