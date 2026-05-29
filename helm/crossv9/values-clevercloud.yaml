@@ -52,8 +52,11 @@ redis:
 # ── Agent: replicated fleet on StatefulSet ──────────────────────────
 agent:
   workloadKind: StatefulSet
-  replicaCount: 3            # R=3 + 0 spare; HPA grows the fleet when memory rises
-  replicationFactor: 3
+  replicaCount: 2            # 1 agent per L node — see resources block below
+  # R=2 with 2 agents = every chunk on both. Loss of one agent leaves
+  # the survivor with a full copy; the restarting one restores from
+  # /data/backup (Ceph) and catches up via the existing rebalance.
+  replicationFactor: 2
   writeQuorum: 2
   vnodesPerAgent: 256
   # RocksDB is the only backend that keeps bucket metadata and chunk
@@ -61,26 +64,77 @@ agent:
   # Postgres on the chunk write path, which neither scales nor
   # bootstraps cleanly in this chart.
   storageBackend: rocksdb
-  # Sized for the dedicated `agents` CKE nodegroup (S flavor:
-  # 8 vCPU / ~11.3 GiB allocatable per node). Memory request is
-  # deliberately set high (5 GiB) to make 1 agent fit per S node —
-  # k8s scheduler can't pack two requests of 5 GiB into 11.3 GiB,
-  # so the StatefulSet spreads naturally across the 3-node pool
-  # without needing a podAntiAffinity rule. CPU request gives
-  # RocksDB compaction a guaranteed slice; the 6-core limit lets
-  # bursts (heavy LSM compaction, GC) consume the rest of the
-  # node when no other agent is sharing it.
+  # Sized for the dedicated `agents` CKE nodegroup (L flavor:
+  # 12 vCPU / ~22.4 GiB allocatable per node). 1 agent per node —
+  # the request math (10 GiB) prevents the scheduler from packing
+  # two agents onto the same L node, which is what makes the
+  # StatefulSet spread naturally across the 2-node pool without a
+  # podAntiAffinity rule. The limit gives the agent the rest of
+  # the node for cache + compaction bursts.
   resources:
     requests:
-      cpu: "1500m"
-      memory: "5Gi"
+      cpu: "2000m"
+      memory: "10Gi"
     limits:
-      cpu: "6000m"
-      memory: "8Gi"
+      cpu: "11000m"
+      memory: "20Gi"
+  # ── Caches sized to use the L node's RAM ──────────────────────────
+  # Now that we're on L (~22 GiB allocatable) and chunks are local
+  # (Ceph reads no longer in the hot path for foreground work), pour
+  # most of the RAM into in-process caches. Fewer hot misses → lower
+  # search latency. Numbers chosen to keep total resident below the
+  # 20 GiB cgroup limit with comfortable headroom for the GC heap.
+  #
+  #   bucketCache (8 GiB, native): the bucket index for searches.
+  #                                Hit rate dominates SearchBuckets latency.
+  #   chunkCache  (4 GiB, native): byte-cache for dedup hits. Avoids
+  #                                re-reading SST blocks on repeat lookups.
+  #   GCHeapHardLimit (4 GiB):     managed heap cap.
+  #   ──── total ───── ~16 GiB managed+caches, ~4 GiB free for RocksDB
+  #                    block cache, glibc, page cache headroom.
+  bucketCache:
+    maxGb: "8"
+    evictionIntervalSec: 10
+    highWaterPct: "0.90"
+    lowWaterPct: "0.75"
+    hardCeilingPct: "0.98"
+  chunkCache:
+    sizeMb: 4096
+    ttlMinutes: 60
   persistence:
     enabled: true
-    storageClassName: ""    # TODO(clevercloud): block volume CSI class
-    size: 50Gi
+    storageClassName: "csi-rbd-sc"   # CKE's only StorageClass (Ceph RBD)
+    size: 60Gi
+  # ── Hot/cold storage split (the search-latency fix) ──────────────────
+  # CKE only exposes Ceph RBD as a StorageClass — every random 4 KiB read
+  # is a TCP round-trip to a remote OSD. With ~50 000 cold seeks per
+  # SearchBuckets RPC that's a 60-second floor regardless of how much CPU
+  # we throw at the agent. localChunks moves /data/chunks to the worker
+  # node's local NVMe (emptyDir) where seeks are sub-microsecond, and
+  # cephBackup keeps an async durable copy on Ceph for crash recovery.
+  #
+  # Loss budget: anything written in the last cephBackup.intervalSec that
+  # also hasn't been replicated to a peer (R=2) is lost on a wipe. That's
+  # acceptable for our workload because every chunk is content-addressed
+  # and replicated to 2 peers, and the backup interval is short relative
+  # to the rate of correlated peer + Ceph failures.
+  localChunks:
+    enabled: true
+    sizeLimit: "30Gi"          # cap per pod's emptyDir; node has ~38 GiB ephemeral
+  cephBackup:
+    enabled: true
+    intervalSec: 300           # 5 min — small loss window, modest Ceph write rate
+    storageClassName: "csi-rbd-sc"
+    size: "60Gi"               # match foreground RocksDB working-set ceiling
+    rsyncBwLimitKbps: ""       # uncapped; small steady-state delta means it's tiny
+    image: "instrumentisto/rsync-ssh:alpine"
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "1500m"
+        memory: "512Mi"
   pdb:
     enabled: true
     # maxUnavailable: 1     # default protects R=3 quorum
@@ -107,9 +161,9 @@ agent:
   # Cloud and bump maxReplicas to match.
   hpa:
     enabled: true
-    minReplicas: 3            # matches replicationFactor and pool size
-    maxReplicas: 3            # raise alongside nodegroup S:N
-    targetMemoryUtilizationPercentage: 70
+    minReplicas: 2            # 1 per L node, fixed at the nodegroup size
+    maxReplicas: 2            # raise alongside nodegroup L:N
+    targetMemoryUtilizationPercentage: 80
     scaleDownStabilizationWindowSeconds: 600  # 10 min — be patient
     scaleDownMaxPodsPerMinute: 1
 

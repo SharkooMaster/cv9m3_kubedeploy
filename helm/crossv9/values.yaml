@@ -280,6 +280,69 @@ agent:
     enabled: false
     storageClassName: ""
     size: 20Gi
+
+  # ── Hot/cold storage split ────────────────────────────────────────────
+  # When the cluster's only StorageClass is network-attached (CKE's Ceph
+  # RBD, EBS-style PVs, etc.), every RocksDB random read crosses the
+  # network. For LSH search that hits ~50k random 4 KiB blocks per RPC
+  # this turns into 60-second response times. The two flags below split
+  # the storage path so the hot read path stays on local NVMe while a
+  # background sidecar pushes a durable copy out to the cluster's
+  # persistent storage.
+  #
+  # Both flags default to OFF so existing deployments are unaffected. See
+  # the long header in templates/agent.yaml for the full design notes,
+  # crash semantics, and loss-budget analysis.
+  localChunks:
+    # When true, mount /data/chunks as an emptyDir on the node's local
+    # ephemeral disk (typically NVMe on cloud worker nodes). Pod restart
+    # WIPES this volume — pair with cephBackup.enabled=true for durable
+    # recovery, or rely on R≥2 replication + a fresh re-adoption from
+    # peers if you accept "rebuild from network" on every restart.
+    enabled: false
+    # Cap the emptyDir at this size so a runaway compaction can't fill
+    # the node disk and evict every other pod via DiskPressure. Should
+    # exceed your steady-state on-disk RocksDB footprint with comfortable
+    # headroom for active compactions (~1.5× expected data).
+    sizeLimit: "30Gi"
+  cephBackup:
+    # When true, attach a per-pod Ceph PVC at /data/backup, run an
+    # init container that restores the agent's local store from there
+    # on cold start, and run a sidecar that incrementally rsyncs the
+    # local store back to the PVC on a fixed interval.
+    #
+    # Only meaningful when localChunks.enabled=true (otherwise /data/chunks
+    # is already on durable storage and a second copy is just overhead).
+    enabled: false
+    # Sidecar rsync cadence in seconds. Lower = smaller loss window on
+    # restart, higher = less Ceph write pressure. The sidecar uses
+    # rsync's incremental algorithm so most cycles only ship the SSTs
+    # flushed since the last cycle.
+    intervalSec: 300
+    # Optional bandwidth cap (KB/s) on rsync to keep the backup from
+    # competing with foreground compaction. Empty string or 0 = uncapped.
+    rsyncBwLimitKbps: ""
+    # Default backup PVC size + StorageClass — both fall back to the
+    # legacy agent.persistence.{size,storageClassName} when unset, so
+    # the same Ceph PVC sizing rules apply by default.
+    storageClassName: ""
+    size: ""
+    # Container image for both initContainer (restore-from-backup) and
+    # sidecar (backup-sync). Needs only `rsync` + a POSIX shell. The
+    # default is a small, well-maintained image; override if you have
+    # an internal mirror.
+    image: "instrumentisto/rsync-ssh:alpine"
+    # Sidecar resource envelope. Tight by default — rsync is I/O-bound,
+    # not CPU-bound, and we don't want the sidecar to eat into the
+    # agent's CPU request on the same node.
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "1000m"
+        memory: "256Mi"
+
   # PodDisruptionBudget — protects R=3 quorum during voluntary
   # disruptions (node drains, rolling upgrades). Off by default;
   # enable in production overlays.

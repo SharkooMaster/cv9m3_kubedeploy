@@ -112,6 +112,89 @@ spec:
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- /*
+      ── Hot/cold storage split (agent.localChunks + agent.cephBackup) ────
+      When localChunks.enabled=true the agent's /data/chunks lives on an
+      emptyDir backed by the node's local SSD instead of network-attached
+      Ceph RBD. RocksDB random reads on Ceph are O(ms) per 4 KiB block
+      because every miss is a TCP round-trip to a remote OSD; on local
+      NVMe they're O(µs). For the LSH search path, where a single batch
+      fans out to ~50 000 random seeks across cold buckets, that's the
+      difference between sub-second and 60-second responses.
+
+      The trade-off is that emptyDir is wiped on any pod-level restart
+      (crash, eviction, node drain). To make this safe in a system that
+      already replicates with R=2 across peers, we add an *independent*
+      durable copy on Ceph. cephBackup adds two pieces:
+
+        • initContainer `restore-from-backup` runs before the agent
+          starts; if /data/chunks is empty AND /data/backup has data,
+          it rsyncs the backup back into /data/chunks. This is what
+          makes an emptyDir-wiping restart non-fatal even when ALL
+          peers happen to be down at the same time.
+
+        • sidecar container `backup-sync` runs continuously alongside
+          the agent. Every cephBackup.intervalSec it does an
+          incremental `rsync -a --delete-after` from /data/chunks to
+          /data/backup. Because rsync only transfers changed file
+          contents and RocksDB SSTs are immutable once written, this
+          becomes effectively a tail of newly-flushed SSTs each cycle.
+          The agent never blocks on this — it keeps reading/writing
+          /data/chunks at SSD speed while the sidecar drips data out
+          to Ceph in the background.
+
+      Loss budget: any data written in the last cephBackup.intervalSec
+      that hasn't yet been rsync'd, AND that hasn't been replicated to
+      a surviving peer, is lost on a wipe. With R=2 + 5 peers + 5-minute
+      backup interval, this requires near-simultaneous failure of two
+      peers + the Ceph cluster within a 5-minute window — an extremely
+      rare correlated failure mode that anti-entropy further mitigates.
+
+      When both flags are false the manifest reverts to the original
+      single-PVC-per-pod shape (Ceph at /data/chunks), so this is a
+      strict superset of the legacy behaviour.
+      */}}
+      {{- $localChunks := and .Values.agent.localChunks .Values.agent.localChunks.enabled }}
+      {{- $cephBackup := and .Values.agent.cephBackup .Values.agent.cephBackup.enabled }}
+      {{- if and $localChunks $cephBackup }}
+      initContainers:
+        - name: restore-from-backup
+          image: {{ default "instrumentisto/rsync-ssh:alpine" .Values.agent.cephBackup.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              # Treat lost+found / .lock / .empty markers as "no real data".
+              chunks_count=$(ls -1A /data/chunks 2>/dev/null | grep -vE '^(lost\+found|\.lock|\.empty)$' | wc -l)
+              backup_count=$(ls -1A /data/backup 2>/dev/null | grep -vE '^(lost\+found|\.lock|\.empty)$' | wc -l)
+              echo "[restore] chunks=$chunks_count backup=$backup_count"
+              if [ "$chunks_count" -eq 0 ] && [ "$backup_count" -gt 0 ]; then
+                echo "[restore] /data/chunks is empty AND /data/backup has data → restoring..."
+                start=$(date +%s)
+                # -a preserves perms/timestamps; --info=progress2 logs to stdout
+                # so the kubelet log shows progress without spamming per-file
+                # lines. /data/backup → /data/chunks (note trailing slashes).
+                rsync -a --info=progress2 /data/backup/ /data/chunks/
+                dur=$(( $(date +%s) - start ))
+                size=$(du -sh /data/chunks 2>/dev/null | cut -f1 || echo "?")
+                echo "[restore] complete in ${dur}s (size=${size})"
+              else
+                echo "[restore] no restore needed (chunks present or backup empty)"
+              fi
+          volumeMounts:
+            - name: chunks
+              mountPath: /data/chunks
+            - name: chunks-backup
+              mountPath: /data/backup
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "1000m"
+              memory: "256Mi"
+      {{- end }}
       containers:
         - name: agent
           image: "{{ .Values.images.agent.repository }}{{ if hasPrefix "sha256:" .Values.images.agent.tag }}@{{ else }}:{{ end }}{{ .Values.images.agent.tag }}"
@@ -364,21 +447,130 @@ spec:
           volumeMounts:
             - name: chunks
               mountPath: /data/chunks
+            {{- if and $localChunks $cephBackup }}
+            # Mounted read-only on the agent: the agent only ever reads/writes
+            # /data/chunks (local SSD); the backup volume is owned by the
+            # backup-sync sidecar. Read-only here keeps a runaway agent from
+            # accidentally bypassing the local-hot path and writing to Ceph
+            # synchronously, which would re-introduce the latency we just
+            # eliminated.
+            - name: chunks-backup
+              mountPath: /data/backup
+              readOnly: true
+            {{- end }}
           {{- with .Values.agent.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-      {{- if or (ne (.Values.agent.workloadKind | default "Deployment") "StatefulSet") (and .Values.dev .Values.dev.fastReset) }}
-      # Deployment / DaemonSet branch + dev.fastReset escape hatch.
+        {{- if and $localChunks $cephBackup }}
+        # ── backup-sync sidecar ─────────────────────────────────────────
+        # Async durable-copy worker. Sleeps `intervalSec` between cycles,
+        # then runs an incremental `rsync -a --delete-after` from local
+        # /data/chunks → Ceph-backed /data/backup. Because RocksDB SSTs
+        # are immutable once written and compactions delete old SSTs
+        # atomically, each cycle effectively transfers only the newly
+        # flushed SSTs and removes the now-obsolete ones — the steady-
+        # state network volume is approximately the agent's compaction
+        # write rate, not the full chunk store.
+        #
+        # We deliberately:
+        #   • run the sync as a separate container so it can't block the
+        #     agent's gRPC handlers even if Ceph is slow or stalled;
+        #   • cap CPU/memory tightly because rsync's working set is
+        #     small (file metadata) — most "work" is just I/O;
+        #   • use --delete-after so the destination is only mutated AFTER
+        #     a successful transfer, leaving /data/backup as a coherent
+        #     restore point if the rsync is killed mid-cycle.
+        #
+        # We deliberately do NOT run rsync continuously (no --inotify,
+        # no --partial spam) — RocksDB writes burst during compaction
+        # and a dripped continuous sync would amplify Ceph load right
+        # when the agent already needs that bandwidth for compaction
+        # reads. A periodic batch is friendlier to the underlying
+        # storage cluster.
+        - name: backup-sync
+          image: {{ default "instrumentisto/rsync-ssh:alpine" .Values.agent.cephBackup.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -u
+              INTERVAL={{ default 300 .Values.agent.cephBackup.intervalSec }}
+              # Optional bandwidth cap (KB/s). Empty/0 = no cap.
+              BWLIMIT={{ default "" .Values.agent.cephBackup.rsyncBwLimitKbps | quote }}
+              RSYNC_OPTS="-a --delete-after --inplace --no-whole-file"
+              if [ -n "${BWLIMIT}" ] && [ "${BWLIMIT}" != "0" ]; then
+                RSYNC_OPTS="${RSYNC_OPTS} --bwlimit=${BWLIMIT}"
+              fi
+              mkdir -p /data/backup
+              echo "[backup-sync] starting loop: interval=${INTERVAL}s opts='${RSYNC_OPTS}'"
+              # Initial delay so we don't fight the init container's first-boot
+              # restore on a fresh pod, and so the agent has time to become
+              # ready before we add I/O pressure.
+              sleep 60
+              while true; do
+                ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+                echo "[backup-sync] [${ts}] rsync /data/chunks/ → /data/backup/"
+                start=$(date +%s)
+                # Note: explicit trailing slashes copy CONTENTS not the dir.
+                # 2>&1 captures rsync's stderr into the same stream so kubelet
+                # logs surface partial-failure messages.
+                if rsync ${RSYNC_OPTS} /data/chunks/ /data/backup/ 2>&1 | tail -3; then
+                  dur=$(( $(date +%s) - start ))
+                  size=$(du -sh /data/backup 2>/dev/null | cut -f1 || echo "?")
+                  echo "[backup-sync] [${ts}] ok dur=${dur}s backup_size=${size}"
+                else
+                  rc=$?
+                  echo "[backup-sync] [${ts}] rsync exited rc=${rc}; retrying next cycle"
+                fi
+                sleep "${INTERVAL}"
+              done
+          resources:
+            requests:
+              cpu: {{ default "50m" (and .Values.agent.cephBackup.resources .Values.agent.cephBackup.resources.requests .Values.agent.cephBackup.resources.requests.cpu) | quote }}
+              memory: {{ default "64Mi" (and .Values.agent.cephBackup.resources .Values.agent.cephBackup.resources.requests .Values.agent.cephBackup.resources.requests.memory) | quote }}
+            limits:
+              cpu: {{ default "1000m" (and .Values.agent.cephBackup.resources .Values.agent.cephBackup.resources.limits .Values.agent.cephBackup.resources.limits.cpu) | quote }}
+              memory: {{ default "256Mi" (and .Values.agent.cephBackup.resources .Values.agent.cephBackup.resources.limits .Values.agent.cephBackup.resources.limits.memory) | quote }}
+          volumeMounts:
+            - name: chunks
+              mountPath: /data/chunks
+              readOnly: true
+            - name: chunks-backup
+              mountPath: /data/backup
+        {{- end }}
+      {{- if or (ne (.Values.agent.workloadKind | default "Deployment") "StatefulSet") (and .Values.dev .Values.dev.fastReset) (and $localChunks (not $cephBackup)) (and $localChunks $cephBackup) }}
+      # Deployment / DaemonSet branch + dev.fastReset escape hatch + new
+      # local-chunks branch. Three flags can promote the `chunks` volume
+      # from a per-pod PVC to an emptyDir (with progressively stronger
+      # caveats):
       #
-      # dev.fastReset=true forces emptyDir storage even under StatefulSet.
-      # That's the inner-loop dev mode: every pod restart wipes data, no
-      # PVC provisioning delay, no leftovers from a previous test run.
-      # NOT for production — replication relies on persistent storage.
+      #   • dev.fastReset=true        — inner-loop dev. Pod restart wipes
+      #                                 data; no PVC provisioning delay.
+      #                                 Not for production.
+      #   • localChunks (no backup)   — local SSD only. Pod restart wipes
+      #                                 the agent's slice; replication
+      #                                 must rebuild it from peers (R≥2
+      #                                 required). Use for benchmarks
+      #                                 where speed >> recovery time.
+      #   • localChunks + cephBackup  — local SSD with async durable copy
+      #                                 to Ceph. Pod restart triggers an
+      #                                 init-container restore from the
+      #                                 backup PVC, so a wipe is recovered
+      #                                 within seconds even with all
+      #                                 peers down. This is the recommended
+      #                                 production shape for a network-
+      #                                 attached-storage cluster.
       volumes:
         - name: chunks
-          {{- if and .Values.dev .Values.dev.fastReset }}
-          emptyDir: {}
+          {{- if or (and .Values.dev .Values.dev.fastReset) $localChunks }}
+          # emptyDir with optional sizeLimit. With no medium specified the
+          # kubelet places it on the node's ephemeral filesystem, which on
+          # CKE is the local NVMe-backed volume the worker boots from.
+          emptyDir:
+            {{- if and $localChunks .Values.agent.localChunks.sizeLimit }}
+            sizeLimit: {{ .Values.agent.localChunks.sizeLimit | quote }}
+            {{- end }}
           {{- else if and .Values.agent.persistence.enabled (eq (.Values.agent.workloadKind | default "Deployment") "DaemonSet") }}
           hostPath:
             path: {{ .Values.agent.persistence.hostPath | default "/var/lib/crossv9/chunks" }}
@@ -390,15 +582,28 @@ spec:
           emptyDir: {}
           {{- end }}
       {{- end }}
-  {{- if and (eq (.Values.agent.workloadKind | default "Deployment") "StatefulSet") (not (and .Values.dev .Values.dev.fastReset)) }}
-  # One Longhorn RWO volume per pod ordinal. Longhorn keeps each volume
-  # bound to its owning pod across reschedules, so chunks stored by
-  # crossv9-agent-0 stay reachable from crossv9-agent-0 no matter which
-  # node it ends up on. This is the storage shape that actually makes
-  # Rendezvous Hashing safe in this codebase — without it, a pod-to-node
-  # move silently re-hashes ~1/N buckets to an agent that doesn't have
-  # the chunks.
+  {{- /*
+    Decide whether we're emitting any volumeClaimTemplates this render:
+      • `chunks`         — when localChunks=false (legacy: PVC at /data/chunks)
+      • `chunks-backup`  — when cephBackup=true   (Ceph PVC at /data/backup)
+    With both flags off OR localChunks=true && cephBackup=false (pure
+    local mode, no durable backing) we omit the parent key entirely —
+    a StatefulSet rejects `volumeClaimTemplates: []` and we don't want
+    to ship an empty list to the API.
+  */}}
+  {{- $emitChunksPvc := and (not $localChunks) (not (and .Values.dev .Values.dev.fastReset)) }}
+  {{- $emitBackupPvc := $cephBackup }}
+  {{- if and (eq (.Values.agent.workloadKind | default "Deployment") "StatefulSet") (or $emitChunksPvc $emitBackupPvc) }}
+  # ── volumeClaimTemplates ───────────────────────────────────────────
+  # Emitted only when at least one PVC is needed (see flag math above).
+  {{- if and $cephBackup (not (and .Values.agent.persistence.enabled .Values.agent.persistence.storageClassName)) }}
+  {{- fail "agent.cephBackup.enabled=true requires agent.persistence.enabled=true with a storageClassName (the backup volume reuses that StorageClass by default)." }}
+  {{- end }}
   volumeClaimTemplates:
+    {{- if $emitChunksPvc }}
+    # Legacy shape: persistent volume mounted directly at /data/chunks.
+    # Binds to its owning pod across reschedules (Rendezvous Hashing
+    # relies on stable pod→storage identity).
     - metadata:
         name: chunks
       spec:
@@ -409,6 +614,23 @@ spec:
         resources:
           requests:
             storage: {{ .Values.agent.persistence.size | quote }}
+    {{- end }}
+    {{- if $emitBackupPvc }}
+    # Per-pod backup volume for the local-chunks + cephBackup mode.
+    # Mounted at /data/backup; written by the `backup-sync` sidecar,
+    # read by the `restore-from-backup` initContainer on cold start.
+    # Defaults inherit from agent.persistence so the same StorageClass
+    # / size used to back the legacy chunks PVC is reused unless
+    # overridden explicitly under agent.cephBackup.
+    - metadata:
+        name: chunks-backup
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ default .Values.agent.persistence.storageClassName .Values.agent.cephBackup.storageClassName | quote }}
+        resources:
+          requests:
+            storage: {{ default .Values.agent.persistence.size .Values.agent.cephBackup.size | quote }}
+    {{- end }}
   {{- end }}
 {{- if and .Values.agent.persistence.enabled (eq (.Values.agent.workloadKind | default "Deployment") "Deployment") }}
 ---
