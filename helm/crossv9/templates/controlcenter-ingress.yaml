@@ -1,4 +1,11 @@
-{{- if and .Values.controlcenter.enabled .Values.controlcenter.ingress.enabled -}}
+{{- /*
+   Nil-guard the ingress sub-dict. `helm upgrade --reuse-values` from
+   a release that predates controlcenter.ingress would otherwise crash
+   with "nil pointer evaluating interface {}.enabled". The triple `and`
+   short-circuits on the missing parent so the ingress simply isn't
+   rendered, identical to the disabled case.
+*/}}
+{{- if and .Values.controlcenter.enabled (and .Values.controlcenter.ingress .Values.controlcenter.ingress.enabled) -}}
 # ── Control-center HTTP ingress ──────────────────────────────────────
 #
 # Why an Ingress and not a second LoadBalancer Service:
@@ -49,17 +56,31 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  {{- if .Values.controlcenter.ingress.className }}
-  ingressClassName: {{ .Values.controlcenter.ingress.className | quote }}
-  {{- end }}
-  {{- with .Values.controlcenter.ingress.tls }}
+  # Default to "nginx" when unset. `--reuse-values --set controlcenter.ingress.enabled=true`
+  # only flips `enabled`, leaving `className` nil — without this default,
+  # the rendered Ingress has no `ingressClassName` field, so NGINX-Ingress
+  # ignores it (it only adopts ingresses with class=nginx, or any class
+  # if it's marked as default — which on most installs it isn't), and
+  # every request returns 404. The default mirrors values.yaml.
+  ingressClassName: {{ default "nginx" (and .Values.controlcenter.ingress .Values.controlcenter.ingress.className) | quote }}
+  {{- with (and .Values.controlcenter.ingress .Values.controlcenter.ingress.tls) }}
   tls:
     {{- toYaml . | nindent 4 }}
   {{- end }}
   rules:
-    - {{- if .Values.controlcenter.ingress.host }}
-      host: {{ .Values.controlcenter.ingress.host | quote }}
-      {{- end }}
+    {{- /*
+       Default to a deterministic hostname when host is unset.
+       `--reuse-values` from a release that predates this template
+       leaves `controlcenter.ingress.host` nil, which produces a
+       wildcard ingress (HOSTS: *). If another ingress on the same
+       NGINX is also wildcard (e.g. cross-ingress with host=""),
+       NGINX-Ingress picks one by creation order and may route
+       HTTP/1.1 traffic to a gRPC backend → 404.
+       Defaulting here mirrors values.yaml and keeps the routing
+       deterministic regardless of how the operator upgraded.
+    */}}
+    {{- $host := default "controlcenter.crossv9.local" (and .Values.controlcenter.ingress .Values.controlcenter.ingress.host) }}
+    - host: {{ $host | quote }}
       http:
         paths:
           - path: /
@@ -69,4 +90,23 @@ spec:
                 name: {{ include "crossv9.fullname" . }}-controlcenter
                 port:
                   number: 5001
+    {{- /*
+       Optional extra hosts. Useful for shareable URLs like
+       `controlcenter.<lb-ip>.nip.io` that don't require viewers to
+       edit their /etc/hosts. nip.io / sslip.io resolve any
+       `*.<ip>.nip.io` to <ip>, so a single helm value gives anyone
+       on the internet a real URL to the dashboard.
+    */}}
+    {{- range (and .Values.controlcenter.ingress .Values.controlcenter.ingress.extraHosts) }}
+    - host: {{ . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "crossv9.fullname" $ }}-controlcenter
+                port:
+                  number: 5001
+    {{- end }}
 {{- end }}

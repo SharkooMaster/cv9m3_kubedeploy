@@ -235,6 +235,27 @@ agent:
   chunkCache:
     sizeMb: 512
     ttlMinutes: 30
+  # Bucket-blob cache caps the working set of decompressed buckets
+  # held in process memory. maxGb is the hard ceiling; the eviction
+  # task wakes every evictionIntervalSec and tries to keep usage
+  # between lowWaterPct and highWaterPct of maxGb. hardCeilingPct
+  # is the kill-switch — synchronous evictions kick in past it.
+  #
+  # Defaults are conservative for a 4 GB managed heap (DOTNET_GCHeapHardLimit);
+  # bump maxGb if you bump the heap cap or the agent has more RAM headroom.
+  # All values land in env vars in the agent container, so a chart
+  # render with the parent dict missing fails the agent template even
+  # before HPA — so this section MUST be defined for the chart to
+  # render at all (it's not optional like ingress / hpa blocks).
+  bucketCache:
+    # NOTE: agent Program.cs:127 parses this with Int64.Parse, so it must
+    # be an integer literal (no decimal point). For sub-1 GB caches use
+    # the chunkCache.sizeMb knob instead.
+    maxGb: "2"
+    evictionIntervalSec: 10
+    highWaterPct: "0.90"
+    lowWaterPct: "0.75"
+    hardCeilingPct: "0.98"
   # Bounded counter cache for `bnext:{bucketId}` — keeps managed RAM constant
   # regardless of total bucket count. See agent/src/Services/Storage/BoundedCounterCache.cs.
   counterCache:
@@ -492,6 +513,33 @@ controlcenter:
     port: 80
     loadBalancerIP: ""
     annotations: {}
+
+  # ── Ingress (HTTP) — share existing NGINX-Ingress IP ────────────────
+  # Off by default. Two ways to expose the control center UI:
+  #
+  #   uiService.type=LoadBalancer (default):
+  #     Gives controlcenter its own external IP. Simple, but burns
+  #     one LB allocation per dev environment on cloud clusters
+  #     where LBs cost money or quota.
+  #
+  #   ingress.enabled=true:
+  #     Routes the UI through whatever Ingress controller is already
+  #     running (NGINX-Ingress, in our chart that's also fronting
+  #     cross-grpc). Costs zero extra LB IPs.
+  #
+  # Both can run side-by-side; use whichever hostname/IP is convenient.
+  # See controlcenter-ingress.yaml for the access pattern when you
+  # don't have public DNS pointing at the NGINX LB IP yet.
+  ingress:
+    enabled: false
+    className: "nginx"
+    # Empty host = catch-all on the NGINX-Ingress controller. AVOID
+    # leaving this empty when cross.ingress is also empty-host —
+    # NGINX picks one rule deterministically by name and the other
+    # ingress's traffic breaks (gRPC 502 if a browser hits /).
+    host: "controlcenter.crossv9.local"
+    annotations: {}
+    tls: []           # entries: [{ secretName, hosts: [...] }]
 
 observability:
   enabled: true

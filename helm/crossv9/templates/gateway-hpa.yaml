@@ -1,4 +1,12 @@
-{{- if .Values.gateway.hpa.enabled -}}
+{{- /*
+   Nil-guard the parent dict. `helm upgrade --reuse-values` against a
+   release installed before gateway.hpa existed leaves this dict
+   unset, and a bare `.Values.gateway.hpa.enabled` would crash with
+   "nil pointer evaluating interface {}.enabled". `and` short-circuits
+   so the second access is skipped when the dict is missing — the HPA
+   simply isn't rendered, identical to the disabled case.
+*/}}
+{{- if and .Values.gateway.hpa .Values.gateway.hpa.enabled -}}
 # Horizontal Pod Autoscaler for the request-handling gateway
 # Deployment.
 #
@@ -31,10 +39,19 @@
 # split isn't, instead of letting an operator paint themselves into
 # a corner where drain-during-scale-down silently corrupts data.
 
-{{- if and .Values.gateway.hpa.enabled (not (and .Values.gatewayCoordinator .Values.gatewayCoordinator.enabled)) }}
+{{- if and (and .Values.gateway.hpa .Values.gateway.hpa.enabled) (not (and .Values.gatewayCoordinator .Values.gatewayCoordinator.enabled)) }}
 {{ fail "gateway.hpa.enabled=true requires gatewayCoordinator.enabled=true. Without splitting the coordinator out of the request-handling gateway Deployment, multi-replica scaling produces racing coordinators and the agent's /admin/retirement-status poll can land on a pod with stale or absent tracker state, letting an agent terminate before its replicas are restored. Set gatewayCoordinator.enabled=true to proceed." }}
 {{- end }}
 
+{{- /*
+   Every reference below uses `default X (and dict dict.field)` so
+   `--reuse-values --set gateway.hpa.enabled=true` (nothing else) still
+   produces a valid HPA. Without the default fallbacks the k8s API
+   rejects the resource with:
+     "spec.metrics[0].resource.target.averageUtilization: Required value"
+   The fallbacks mirror values.yaml so the rendered HPA always works
+   even if the operator only flipped `enabled`.
+*/}}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -50,15 +67,15 @@ spec:
     # gateway-coordinator Deployment is fixed at replicas=1 and is
     # NEVER an HPA target.
     name: {{ include "crossv9.fullname" . }}-gateway
-  minReplicas: {{ .Values.gateway.hpa.minReplicas }}
-  maxReplicas: {{ .Values.gateway.hpa.maxReplicas }}
+  minReplicas: {{ default 2 (and .Values.gateway.hpa .Values.gateway.hpa.minReplicas) }}
+  maxReplicas: {{ default 10 (and .Values.gateway.hpa .Values.gateway.hpa.maxReplicas) }}
   metrics:
     - type: Resource
       resource:
         name: cpu
         target:
           type: Utilization
-          averageUtilization: {{ .Values.gateway.hpa.targetCPUUtilizationPercentage }}
+          averageUtilization: {{ default 70 (and .Values.gateway.hpa .Values.gateway.hpa.targetCPUUtilizationPercentage) }}
   behavior:
     scaleUp:
       # Burst-absorption: react quickly when ingest spikes. Limited
@@ -72,7 +89,7 @@ spec:
     scaleDown:
       # Patient on the way down: avoid flapping when traffic dips
       # for tens of seconds. Default 5 minutes.
-      stabilizationWindowSeconds: {{ default 300 .Values.gateway.hpa.scaleDownStabilizationWindowSeconds }}
+      stabilizationWindowSeconds: {{ default 300 (and .Values.gateway.hpa .Values.gateway.hpa.scaleDownStabilizationWindowSeconds) }}
       policies:
         - type: Percent
           value: 50

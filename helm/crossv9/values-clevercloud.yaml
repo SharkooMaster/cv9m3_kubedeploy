@@ -34,15 +34,14 @@ etcd:
     size: "1Gi"
 
 # ── Postgres + Redis ────────────────────────────────────────────────
-# Both are bundled by default; if you front-end with Clever's
-# managed addons, set externalPostgres / externalRedis instead and
-# disable the in-chart copies.
+# Postgres is intentionally OFF on Clever Cloud: the agent storage
+# backend is RocksDB, no service in the live deployment opens a
+# postgres connection, and the bundled DB was just burning a 20Gi
+# PVC + ~256Mi RAM for nothing. If a future workload needs SQL,
+# point it at a managed Clever Cloud Postgres add-on via the
+# externalPostgres block in values.yaml.
 postgres:
-  enabled: true
-  persistence:
-    enabled: true
-    storageClassName: ""    # TODO(clevercloud)
-    size: 20Gi
+  enabled: false
 
 redis:
   persistence:
@@ -53,7 +52,7 @@ redis:
 # ── Agent: replicated fleet on StatefulSet ──────────────────────────
 agent:
   workloadKind: StatefulSet
-  replicaCount: 5            # R=3 + 2 spare → tolerates a single agent failure cleanly
+  replicaCount: 3            # R=3 + 0 spare; HPA grows the fleet when memory rises
   replicationFactor: 3
   writeQuorum: 2
   vnodesPerAgent: 256
@@ -62,13 +61,22 @@ agent:
   # Postgres on the chunk write path, which neither scales nor
   # bootstraps cleanly in this chart.
   storageBackend: rocksdb
+  # Sized for the dedicated `agents` CKE nodegroup (S flavor:
+  # 8 vCPU / ~11.3 GiB allocatable per node). Memory request is
+  # deliberately set high (5 GiB) to make 1 agent fit per S node —
+  # k8s scheduler can't pack two requests of 5 GiB into 11.3 GiB,
+  # so the StatefulSet spreads naturally across the 3-node pool
+  # without needing a podAntiAffinity rule. CPU request gives
+  # RocksDB compaction a guaranteed slice; the 6-core limit lets
+  # bursts (heavy LSM compaction, GC) consume the rest of the
+  # node when no other agent is sharing it.
   resources:
     requests:
-      cpu: "1000m"
-      memory: "4Gi"
+      cpu: "1500m"
+      memory: "5Gi"
     limits:
-      cpu: "4000m"
-      memory: "16Gi"
+      cpu: "6000m"
+      memory: "8Gi"
   persistence:
     enabled: true
     storageClassName: ""    # TODO(clevercloud): block volume CSI class
@@ -92,13 +100,38 @@ agent:
 
   # Memory-based HPA. Bucket cache + chunk cache + LSM blocks scale
   # with stored data, so memory % is a reasonable "filling up" signal.
+  # min=max=3 right now: the dedicated nodegroup is 3× S, and one agent
+  # fully occupies a node by request math. To grow past 3 agents,
+  # either expand the nodegroup (`clever k8s nodegroups update
+  # crossv9-dev agents S:N`) or enable nodegroup autoscaling on Clever
+  # Cloud and bump maxReplicas to match.
   hpa:
     enabled: true
-    minReplicas: 5
-    maxReplicas: 15
+    minReplicas: 3            # matches replicationFactor and pool size
+    maxReplicas: 3            # raise alongside nodegroup S:N
     targetMemoryUtilizationPercentage: 70
     scaleDownStabilizationWindowSeconds: 600  # 10 min — be patient
     scaleDownMaxPodsPerMinute: 1
+
+  # ── Dedicated CKE nodegroup for agents ──────────────────────────────
+  # The CKE cluster has an `agents` nodegroup (flavor S, 8 vCPU /
+  # ~11.3 GiB allocatable per node) with a `role=agent:NoSchedule`
+  # taint. Pinning the StatefulSet here gives RocksDB compaction the
+  # full S-flavor CPU/IOPS budget per pod and stops the stateless tier
+  # from co-locating onto the same nodes (the shared-XS layout was
+  # starving compaction). Cross/gateway/control-center stay on the
+  # untainted `default` nodegroup because they have no matching
+  # toleration.
+  #
+  # The selector uses CKE's built-in nodegroup label, so no extra
+  # `kubectl label` step is needed when scaling the nodegroup.
+  nodeSelector:
+    clever-cloud.com/nodegroup: agents
+  tolerations:
+    - key: role
+      operator: Equal
+      value: agent
+      effect: NoSchedule
 
 # ── Gateway ─────────────────────────────────────────────────────────
 # Request-handling pods scale via HPA. The rebalance coordinator (and
@@ -110,17 +143,17 @@ gateway:
   replicaCount: 2            # initial; HPA takes over from here
   resources:
     requests:
-      cpu: "500m"
-      memory: "1Gi"
+      cpu: "250m"
+      memory: "512Mi"
     limits:
       cpu: "2000m"
-      memory: "4Gi"
+      memory: "2Gi"
   pdb:
     enabled: true
   hpa:
     enabled: true
     minReplicas: 2
-    maxReplicas: 10
+    maxReplicas: 4            # stays within node budget alongside cross/agent
     targetCPUUtilizationPercentage: 70
     scaleDownStabilizationWindowSeconds: 300
 
@@ -141,15 +174,15 @@ cross:
   replicaCount: 2            # initial; HPA takes over from here
   resources:
     requests:
-      cpu: "1000m"
-      memory: "2Gi"
+      cpu: "500m"
+      memory: "1Gi"
     limits:
       cpu: "4000m"
-      memory: "8Gi"
+      memory: "4Gi"
   hpa:
     enabled: true
     minReplicas: 2
-    maxReplicas: 20
+    maxReplicas: 6            # stays within 4-node CKE budget
     targetCPUUtilizationPercentage: 70
     scaleDownStabilizationSeconds: 300
   ingress:
@@ -177,8 +210,40 @@ cross:
 controlcenter:
   enabled: true
   uiService:
-    type: LoadBalancer
-    annotations: {}         # TODO(clevercloud): LB controller specifics
+    # ClusterIP rather than LoadBalancer here because the ingress
+    # below shares the existing NGINX-Ingress IP. A second LB just
+    # for the UI burns a public IP allocation; the ingress route is
+    # equivalent in functionality and zero-cost.
+    #
+    # If you'd rather have a dedicated IP (e.g. for hostname-less
+    # deployments), flip back to LoadBalancer and set ingress.enabled=false.
+    type: ClusterIP
+    annotations: {}
   persistence:
     storageClassName: ""    # TODO(clevercloud)
     size: "20Gi"
+  # HTTP ingress — operator hits the UI without port-forwarding.
+  # Uses the same NGINX-Ingress controller as cross-grpc, so the
+  # cluster only needs one external LB IP for everything.
+  #
+  # Access pattern:
+  #   1. Note the NGINX LB IP:
+  #        kubectl -n ingress-nginx get svc ingress-nginx-controller
+  #   2. Either point DNS at it, or add to /etc/hosts:
+  #        <ip>  controlcenter.crossv9.local
+  #   3. Open http://controlcenter.crossv9.local/ in your browser.
+  ingress:
+    enabled: true
+    className: "nginx"
+    host: "controlcenter.crossv9.local"   # change to a real hostname when DNS is wired up
+    annotations:
+      # The controlcenter UI loads incrementally and a few API
+      # endpoints can hold the connection open while building the
+      # fleet snapshot. Generous timeouts keep slow pulls from
+      # being cut off by NGINX defaults (60s).
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+      # Allow NDJSON.gz event-journal downloads to be streamed
+      # without buffering — events.ndjson.gz can be hundreds of MB.
+      nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    tls: []

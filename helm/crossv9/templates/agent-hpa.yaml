@@ -1,4 +1,10 @@
-{{- if .Values.agent.hpa.enabled -}}
+{{- /*
+   Nil-guard. `helm upgrade --reuse-values` from a release that
+   predates agent.hpa would otherwise crash with
+   "nil pointer evaluating interface {}.enabled". `and` short-circuits
+   on the missing parent dict so the HPA simply isn't rendered.
+*/}}
+{{- if and .Values.agent.hpa .Values.agent.hpa.enabled -}}
 # Horizontal Pod Autoscaler for the agent StatefulSet.
 #
 # WHY MEMORY (not CPU):
@@ -31,10 +37,21 @@
 #   of terminations. We cap at 1 pod per scaleDownMaxPodsPerMinute
 #   window and apply a ~5 min stabilization to avoid flapping.
 
-{{- if and .Values.agent.hpa.enabled (not (and .Values.agent.retirement .Values.agent.retirement.enabled)) }}
+{{- if and (and .Values.agent.hpa .Values.agent.hpa.enabled) (not (and .Values.agent.retirement .Values.agent.retirement.enabled)) }}
 {{ fail "agent.hpa.enabled=true requires agent.retirement.enabled=true. Without the preStop drain hook, HPA scale-down can drop replication below the write quorum. Set agent.retirement.enabled=true to proceed." }}
 {{- end }}
 
+{{- /*
+   Every reference below uses `default X (and dict dict.field)` so
+   a partial values dict (e.g. `--reuse-values --set agent.hpa.enabled=true`
+   with nothing else) doesn't render an HPA with empty
+   averageUtilization / minReplicas / maxReplicas. The k8s API
+   rejects those with errors like:
+     "spec.metrics[0].resource.target.averageUtilization: Required value"
+   The defaults here mirror values.yaml so the rendered HPA is
+   always a valid resource even if the operator only flipped
+   `enabled`.
+*/}}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -47,15 +64,15 @@ spec:
     apiVersion: apps/v1
     kind: StatefulSet
     name: {{ include "crossv9.fullname" . }}-agent
-  minReplicas: {{ .Values.agent.hpa.minReplicas }}
-  maxReplicas: {{ .Values.agent.hpa.maxReplicas }}
+  minReplicas: {{ default 3 (and .Values.agent.hpa .Values.agent.hpa.minReplicas) }}
+  maxReplicas: {{ default 10 (and .Values.agent.hpa .Values.agent.hpa.maxReplicas) }}
   metrics:
     - type: Resource
       resource:
         name: memory
         target:
           type: Utilization
-          averageUtilization: {{ .Values.agent.hpa.targetMemoryUtilizationPercentage }}
+          averageUtilization: {{ default 70 (and .Values.agent.hpa .Values.agent.hpa.targetMemoryUtilizationPercentage) }}
   behavior:
     scaleUp:
       # React to capacity-growth signals quickly — adding a pod is
@@ -67,13 +84,13 @@ spec:
           value: 1
           periodSeconds: 60
     scaleDown:
-      stabilizationWindowSeconds: {{ default 300 .Values.agent.hpa.scaleDownStabilizationWindowSeconds }}
+      stabilizationWindowSeconds: {{ default 300 (and .Values.agent.hpa .Values.agent.hpa.scaleDownStabilizationWindowSeconds) }}
       policies:
         # Cap removals to 1 pod per minute. Each removal triggers a
         # drain that takes up to terminationGracePeriodSeconds; queueing
         # multiple at once would only block the kubelet without
         # actually finishing faster.
         - type: Pods
-          value: {{ default 1 .Values.agent.hpa.scaleDownMaxPodsPerMinute }}
+          value: {{ default 1 (and .Values.agent.hpa .Values.agent.hpa.scaleDownMaxPodsPerMinute) }}
           periodSeconds: 60
 {{- end }}

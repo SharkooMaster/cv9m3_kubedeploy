@@ -93,6 +93,25 @@ spec:
       # When retirement is disabled, k8s falls back to its 30s default.
       terminationGracePeriodSeconds: {{ default 600 .Values.agent.retirement.timeoutSeconds }}
       {{- end }}
+      # ── Scheduling controls ──────────────────────────────────────────
+      # Pin agents to a dedicated node pool when one is available
+      # (CKE: a tainted `agents` nodegroup with role=agent label). With
+      # the pool tainted, this StatefulSet is the only thing that can
+      # land there, isolating RocksDB compaction CPU/IOPS from the
+      # stateless tier. When the values are empty (default), agents
+      # schedule wherever fits — exactly the legacy behaviour.
+      {{- with .Values.agent.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agent.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agent.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: agent
           image: "{{ .Values.images.agent.repository }}{{ if hasPrefix "sha256:" .Values.images.agent.tag }}@{{ else }}:{{ end }}{{ .Values.images.agent.tag }}"
@@ -209,16 +228,20 @@ spec:
               value: {{ .Values.agent.s3.forcePathStyle | quote }}
             - name: S3_USE_SSL
               value: {{ .Values.agent.s3.useSsl | quote }}
+            # Safe-against-missing-parent: if `--reuse-values` from
+            # an old release leaves agent.bucketCache unset, every one
+            # of these falls back to a sane built-in default rather
+            # than crashing template render.
             - name: BUCKET_CACHE_MAX_GB
-              value: {{ .Values.agent.bucketCache.maxGb | quote }}
+              value: {{ default "2.0" (and .Values.agent.bucketCache .Values.agent.bucketCache.maxGb) | quote }}
             - name: BUCKET_CACHE_EVICTION_SEC
-              value: {{ (default 10 .Values.agent.bucketCache.evictionIntervalSec) | quote }}
+              value: {{ default 10 (and .Values.agent.bucketCache .Values.agent.bucketCache.evictionIntervalSec) | quote }}
             - name: BUCKET_CACHE_HIGH_WATER_PCT
-              value: {{ default "0.90" .Values.agent.bucketCache.highWaterPct | quote }}
+              value: {{ default "0.90" (and .Values.agent.bucketCache .Values.agent.bucketCache.highWaterPct) | quote }}
             - name: BUCKET_CACHE_LOW_WATER_PCT
-              value: {{ default "0.75" .Values.agent.bucketCache.lowWaterPct | quote }}
+              value: {{ default "0.75" (and .Values.agent.bucketCache .Values.agent.bucketCache.lowWaterPct) | quote }}
             - name: BUCKET_CACHE_HARD_CEILING_PCT
-              value: {{ default "0.98" .Values.agent.bucketCache.hardCeilingPct | quote }}
+              value: {{ default "0.98" (and .Values.agent.bucketCache .Values.agent.bucketCache.hardCeilingPct) | quote }}
             - name: CHUNK_CACHE_SIZE_MB
               value: {{ .Values.agent.chunkCache.sizeMb | quote }}
             - name: CHUNK_CACHE_TTL_MINUTES
