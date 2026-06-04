@@ -20,6 +20,45 @@
 global:
   fullnameOverride: "crossv9"
 
+# Dedup chunk size. 1024 trades more chunks/RPCs/RocksDB entries per window
+# for finer dedup granularity (better ratio on small-delta data). The v7
+# classify prefetch + async store offset most of the extra per-chunk cost.
+chunkSize: 1024
+
+# Container images. cross + agent carry the new builds (non-blocking store,
+# batched classify fetch). gateway/webinterface/controlcenter were not
+# rebuilt, so they keep their current ghcr digests — REPLACE these if you
+# have newer clevercloud builds for them.
+imagePullSecrets:
+  - name: ghcr-pull
+images:
+  agent:
+    repository: "ghcr.io/sharkoomaster/crossv9-agent"
+    tag: "sha256:3892e2c9dc6068172cb39b7e2f7188174b40a8f5f5a139c37506396768ce96eb"
+    pullPolicy: Always
+  cross:
+    repository: "ghcr.io/sharkoomaster/crossv9-cross"
+    tag: "sha256:74c066d78072818b8cd6cc27b05fd7ba4364c8ea06e2d92a5425c4452242884f"
+    pullPolicy: Always
+  gateway:
+    repository: "ghcr.io/sharkoomaster/crossv9-gateway"
+    tag: "sha256:71eb0c6f48fcb06a65b68bbd311b89b2bc5e9df586985e7ffa8ab0f5d51eb34c"
+    pullPolicy: IfNotPresent
+  webinterface:
+    repository: "ghcr.io/sharkoomaster/crossv9-webinterface"
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  controlcenter:
+    repository: "ghcr.io/sharkoomaster/crossv9-controlcenter"
+    tag: "sha256:fb0f8ff1569f0091e64635727143131e16949faca3619b78232b87d954afd1d5"
+    pullPolicy: Always
+
+# Benchmark-only workload — not deployed on clevercloud. Declared so the
+# chart renders without the benchmark values overlay (the template
+# unconditionally reads .Values.benchrunner.enabled).
+benchrunner:
+  enabled: false
+
 # Longhorn isn't shipped here — Clever Cloud provides its own CSI.
 # Set storageClassName below to whatever `kubectl get sc` reports.
 longhorn:
