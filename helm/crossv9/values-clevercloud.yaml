@@ -101,6 +101,21 @@ agent:
   chunkCache:
     sizeMb: 4096
     ttlMinutes: 60
+  # ── GC tuning (must be set, defaults from values-k3-benchmark are 4 GiB) ──
+  # The agent's cache-sizing path inspects GC.GetGCMemoryInfo()
+  # .TotalAvailableMemoryBytes which echoes DOTNET_GCHeapHardLimit, NOT the
+  # cgroup limit. With heapHardLimit at the k3 default (0x100000000 = 4 GiB)
+  # the agent thinks it only has 4 GB and caps the 8 GiB bucket cache + 4 GiB
+  # chunk cache configured above down to ~819 MB / ~204 MB respectively.
+  # Raising the hard limit to 12 GiB gives the safety check enough headroom
+  # to honour the configured cache sizes (bucketCache cap = 50% of heap =
+  # 6 GiB, slightly under the configured 8 GiB but still 7× larger than the
+  # k3 default).
+  gc:
+    conserveMemory: "5"
+    heapHardLimit: "0x300000000" # 12 GiB managed heap, fits inside 20 GiB cgroup
+    retainVm: "1"
+    lohThreshold: "262144"
   persistence:
     enabled: true
     storageClassName: "csi-rbd-sc"   # CKE's only StorageClass (Ceph RBD)
@@ -110,23 +125,46 @@ agent:
   # is a TCP round-trip to a remote OSD. With ~50 000 cold seeks per
   # SearchBuckets RPC that's a 60-second floor regardless of how much CPU
   # we throw at the agent. localChunks moves /data/chunks to the worker
-  # node's local NVMe (emptyDir) where seeks are sub-microsecond, and
-  # cephBackup keeps an async durable copy on Ceph for crash recovery.
+  # node's local NVMe (emptyDir) where seeks are sub-microsecond.
   #
-  # Loss budget: anything written in the last cephBackup.intervalSec that
-  # also hasn't been replicated to a peer (R=2) is lost on a wipe. That's
-  # acceptable for our workload because every chunk is content-addressed
-  # and replicated to 2 peers, and the backup interval is short relative
-  # to the rate of correlated peer + Ceph failures.
+  # Durability: relies on R=2 replication across peers — every chunk
+  # lives on two agents. A single-pod restart wipes that pod's slice
+  # (emptyDir is ephemeral) and the rebalance path rebuilds it from the
+  # surviving peer. A correlated two-pod loss = data loss; acceptable
+  # for a benchmarking cluster.
+  #
+  # The `cephBackup` block below was the previous "third copy" defense
+  # but rsync-of-live-RocksDB cannot produce a consistent snapshot, so
+  # it's been disabled. See the comment on agent.cephBackup for the
+  # full failure mode and the path back to a safe implementation.
   localChunks:
     enabled: true
     sizeLimit: "30Gi"          # cap per pod's emptyDir; node has ~38 GiB ephemeral
   cephBackup:
-    enabled: true
-    intervalSec: 300           # 5 min — small loss window, modest Ceph write rate
+    # ── DISABLED 2026-05-31 — rsync-of-live-RocksDB is unsafe ──────────
+    # The sidecar's `rsync -a --delete-after` against a running RocksDB
+    # cannot capture an internally-consistent snapshot: between when
+    # rsync reads CURRENT/MANIFEST and when it walks the *.sst/*.ldb
+    # files, RocksDB's compactor can rewrite the LSM and unlink the
+    # files the manifest just referenced. Restoring such a snapshot
+    # gives "Corruption: No such file or directory: ..../00NNNN.ldb in
+    # file MANIFEST-NNNNNN" and the agent crash-loops. We hit this 3×.
+    #
+    # Durability for testing now relies entirely on R=2 replication
+    # across peers (every chunk lives on two agents). On a single-pod
+    # restart the pod's slice is rebuilt from the surviving peer via
+    # the normal rebalance path; on a correlated 2-pod failure data is
+    # lost — acceptable for a benchmarking cluster.
+    #
+    # Re-enabling this feature requires switching to RocksDB's native
+    # Checkpoint or BackupEngine API (which take an LSM snapshot under
+    # an internal lock so the on-disk view is consistent), then rsync-
+    # ing the *checkpoint directory* to Ceph. Until then: keep this off.
+    enabled: false
+    intervalSec: 300
     storageClassName: "csi-rbd-sc"
-    size: "60Gi"               # match foreground RocksDB working-set ceiling
-    rsyncBwLimitKbps: ""       # uncapped; small steady-state delta means it's tiny
+    size: "60Gi"
+    rsyncBwLimitKbps: ""
     image: "instrumentisto/rsync-ssh:alpine"
     resources:
       requests:

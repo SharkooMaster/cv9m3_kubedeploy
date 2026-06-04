@@ -288,6 +288,13 @@ spec:
             # arena count concentrates native frag and keeps RSS predictable.
             - name: MALLOC_ARENA_MAX
               value: {{ default "2" .Values.agent.malloc.arenaMax | quote }}
+            # Non-blocking store: when "1"/"true", Store/BatchStore ack as soon as writes
+            # are queued (background 5s flush + cross R/W replication / replicated PVC such
+            # as Ceph RBD provide durability). The agent still drains synchronously when
+            # RocksDB reports write pressure. Default "0" keeps the synchronous-flush-before-ack
+            # behavior, so durability is unchanged unless explicitly opted in.
+            - name: AGENT_STORE_ASYNC
+              value: {{ default "0" .Values.agent.storeAsync | quote }}
             # Also configure BoundedCounterCache via env vars so we can tune without rebuilds.
             - name: BUCKET_COUNTER_CACHE_CAPACITY
               value: {{ default "1000000" .Values.agent.counterCache.capacity | quote }}
