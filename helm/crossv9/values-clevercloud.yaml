@@ -59,6 +59,13 @@ agent:
   replicationFactor: 2
   writeQuorum: 2
   vnodesPerAgent: 256
+  # Non-blocking store: ack as soon as writes are queued instead of fsyncing
+  # the RocksDB WAL on every BatchStore. Safe here because chunk+bucket data
+  # is on local NVMe (localChunks) and every chunk is replicated to both
+  # agents (R=2). The agent still drains synchronously when RocksDB reports
+  # write pressure, so a stalled LSM is never piled on. This removes the
+  # per-batch fsync latency from the store path (both replicas ack faster).
+  storeAsync: "1"
   # RocksDB is the only backend that keeps bucket metadata and chunk
   # bytes in a single embedded store. The other backends require
   # Postgres on the chunk write path, which neither scales nor
