@@ -178,7 +178,7 @@ spec:
             - name: CROSS_MAX_UPLOAD_BYTES
               value: {{ .Values.cross.maxUploadBytes | default "107374182400" | quote }}
             - name: CROSS_MAX_CONCURRENT
-              value: {{ .Values.cross.maxConcurrent | default 4 | quote }}
+              value: {{ .Values.cross.maxConcurrent | default 8 | quote }}
             - name: CROSS_PIPELINE_PARALLELISM
               value: {{ .Values.cross.pipelineParallelism | default 4 | quote }}
             # ── Agent RPC throttle + circuit breaker tuning ──

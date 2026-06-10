@@ -138,6 +138,14 @@ agent:
   #   GCHeapHardLimit (4 GiB):     managed heap cap.
   #   ──── total ───── ~16 GiB managed+caches, ~4 GiB free for RocksDB
   #                    block cache, glibc, page cache headroom.
+  # Binary vector index replaces the L1 M_Bucket cache as the search path:
+  # search RAM is now 8 B/vector (sealed) + ~620 MB hot tier, with the
+  # bucketCache budget below no longer on the hot path.
+  binaryIndex:
+    enabled: "true"
+    segmentCapacity: "2000000"
+  l1CacheEnabled: "false"
+
   bucketCache:
     maxGb: "8"
     evictionIntervalSec: 10

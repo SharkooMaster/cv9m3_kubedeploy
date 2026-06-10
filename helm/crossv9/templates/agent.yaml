@@ -326,6 +326,26 @@ spec:
               value: {{ default "2.0" (and .Values.agent.bucketCache .Values.agent.bucketCache.maxGb) | quote }}
             - name: BUCKET_CACHE_EVICTION_SEC
               value: {{ default 10 (and .Values.agent.bucketCache .Values.agent.bucketCache.evictionIntervalSec) | quote }}
+            # ── Binary vector index (primary search path) ──
+            # Two-stage in-RAM LSH search over flat segments: stage 1 probes the
+            # query's 64-bit code + 64 single-bit flips against a RAM hash /
+            # sorted-code binary search (8 bytes/vector for sealed tiers), stage 2
+            # SIMD-cosines the few candidates (mmap'd records). Zero per-vector
+            # heap objects → nothing for the GC to fragment; RocksDB stays the
+            # durable source of truth and the index is rebuilt from it at boot.
+            # Supersedes both L1 object caching and RocksDB-direct probing.
+            - name: BINARY_INDEX_ENABLED
+              value: {{ default "true" (and .Values.agent.binaryIndex .Values.agent.binaryIndex.enabled) | quote }}
+            # Entries per hot segment before it is frozen and sealed to an mmap
+            # file. 2M ≈ 620 MB hot-tier RAM; sealed tiers cost 8 B/vector RAM.
+            - name: BINARY_INDEX_SEGMENT_CAPACITY
+              value: {{ default "2000000" (and .Values.agent.binaryIndex .Values.agent.binaryIndex.segmentCapacity) | quote }}
+            # L1 in-RAM bucket cache (M_Bucket object graph). SUPERSEDED by the
+            # binary index above — with the index enabled, search never consults
+            # L1, so keeping it on only adds ~470 B/vector of managed heap.
+            # Default off; flip on only if BINARY_INDEX_ENABLED=false.
+            - name: L1_CACHE_ENABLED
+              value: {{ .Values.agent.l1CacheEnabled | default "false" | quote }}
             - name: BUCKET_CACHE_HIGH_WATER_PCT
               value: {{ default "0.90" (and .Values.agent.bucketCache .Values.agent.bucketCache.highWaterPct) | quote }}
             - name: BUCKET_CACHE_LOW_WATER_PCT

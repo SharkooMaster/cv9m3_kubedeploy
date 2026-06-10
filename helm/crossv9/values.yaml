@@ -247,6 +247,14 @@ agent:
   # render with the parent dict missing fails the agent template even
   # before HPA — so this section MUST be defined for the chart to
   # render at all (it's not optional like ingress / hpa blocks).
+  # ── Binary vector index (primary search path) ──
+  # Two-stage in-RAM LSH search: 8 B/vector RAM for sealed tiers, zero
+  # per-vector heap objects. Rebuilt from RocksDB at boot. When enabled,
+  # leave l1CacheEnabled=false (the M_Bucket object cache is redundant).
+  binaryIndex:
+    enabled: "true"
+    segmentCapacity: "2000000"
+
   bucketCache:
     # NOTE: agent Program.cs:127 parses this with Int64.Parse, so it must
     # be an integer literal (no decimal point). For sub-1 GB caches use
@@ -486,7 +494,7 @@ cross:
   windowedThresholdMB: 256
   windowSizeMB: 64
   maxUploadBytes: "107374182400"
-  maxConcurrent: 4
+  maxConcurrent: 8
   pipelineParallelism: 4
   searchTopK: 10
   gc:
