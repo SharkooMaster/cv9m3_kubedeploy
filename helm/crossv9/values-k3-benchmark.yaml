@@ -322,13 +322,15 @@ cross:
       storageClassName: "longhorn"
       size: "100Gi"
   service:
-    type: LoadBalancer
+    # NodePort instead of MetalLB LoadBalancer: MetalLB L2 announcements
+    # aren't reaching the office LAN (router/clients can't ARP the VIP),
+    # while NodePort binds on every node's real IP — client just targets
+    # any node, e.g. the control plane: 192.168.50.51:30500 (gRPC).
+    type: NodePort
     grpcPort: 5000
     httpPort: 5001
-    # Pinned MetalLB IP so the router port-forward target survives
-    # redeploys. Must be inside the MetalLB pool and unused elsewhere.
-    loadBalancerIP: "192.168.50.70"
-    externalTrafficPolicy: Cluster
+    grpcNodePort: 30500
+    httpNodePort: 30501
     annotations: {}
   hpa:
     enabled: false
@@ -392,9 +394,11 @@ controlcenter:
     storageClassName: "longhorn"
     size: "10Gi"
   uiService:
-    type: LoadBalancer
+    # NodePort for the same MetalLB-unreachability reason as cross.
+    # UI: http://192.168.50.51:30580
+    type: NodePort
     port: 80
-    loadBalancerIP: ""
+    nodePort: 30580
     annotations: {}
 
 observability:

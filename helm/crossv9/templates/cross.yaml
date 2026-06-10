@@ -20,9 +20,15 @@ spec:
     - name: grpc
       port: {{ .Values.cross.service.grpcPort | default 5000 }}
       targetPort: grpc
+      {{- if and (eq (.Values.cross.service.type | default "ClusterIP") "NodePort") .Values.cross.service.grpcNodePort }}
+      nodePort: {{ .Values.cross.service.grpcNodePort }}
+      {{- end }}
     - name: http
       port: {{ .Values.cross.service.httpPort | default 5001 }}
       targetPort: http
+      {{- if and (eq (.Values.cross.service.type | default "ClusterIP") "NodePort") .Values.cross.service.httpNodePort }}
+      nodePort: {{ .Values.cross.service.httpNodePort }}
+      {{- end }}
   selector:
     app.kubernetes.io/component: cross
     {{- include "crossv9.labels" . | nindent 4 }}

@@ -39,6 +39,9 @@ spec:
     - name: http
       port: {{ .Values.controlcenter.uiService.port | default 80 }}
       targetPort: http
+      {{- if and (eq (.Values.controlcenter.uiService.type | default "LoadBalancer") "NodePort") .Values.controlcenter.uiService.nodePort }}
+      nodePort: {{ .Values.controlcenter.uiService.nodePort }}
+      {{- end }}
   selector:
     app.kubernetes.io/component: controlcenter
     {{- include "crossv9.labels" . | nindent 4 }}
