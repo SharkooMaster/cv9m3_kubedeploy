@@ -121,9 +121,15 @@ agent:
     requests:
       cpu: "2000m"
       memory: "10Gi"
+      # Agent nodes have ~38 GiB allocatable ephemeral disk. The emptyDir
+      # (chunks + buckets + binindex) counts toward pod ephemeral usage —
+      # declare it so the scheduler accounts for it and kubelet evicts
+      # this pod predictably instead of tainting the whole node.
+      ephemeral-storage: "24Gi"
     limits:
       cpu: "11000m"
       memory: "20Gi"
+      ephemeral-storage: "32Gi"
   # ── Caches sized to use the L node's RAM ──────────────────────────
   # Now that we're on L (~22 GiB allocatable) and chunks are local
   # (Ceph reads no longer in the hot path for foreground work), pour
