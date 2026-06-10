@@ -185,7 +185,12 @@ agent:
   # BinaryVectorIndex rebuilds itself from RocksDB on startup.
   localChunks:
     enabled: true
-    sizeLimit: "700Gi"          # node has ~1 TB m.2
+    # Sized to the SMALLEST worker (techpology2/3: ~432 GiB allocatable).
+    # 350 Gi keeps node free space above kubelet's 10% disk-pressure
+    # threshold even on those nodes; the bigger nodes just have headroom.
+    # Fleet capacity at R=2 ≈ 5 × 350 / 2 = ~875 GiB unique — far beyond
+    # the 133 GB benchmark even at 0% dedup.
+    sizeLimit: "350Gi"
   # persistence block kept for template compatibility — with
   # localChunks.enabled=true no chunks PVC is rendered.
   persistence:
@@ -204,11 +209,11 @@ agent:
     requests:
       cpu: "4000m"
       memory: "16Gi"
-      ephemeral-storage: "300Gi"
+      ephemeral-storage: "200Gi"
     limits:
       cpu: "24000m"
       memory: "26Gi"
-      ephemeral-storage: "700Gi"
+      ephemeral-storage: "350Gi"
 
   # GC: heapHardLimit is what the cache auto-sizer reads — NOT the cgroup
   # limit. 16 GiB managed cap inside the 26 GiB cgroup leaves ~10 GiB for
