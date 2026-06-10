@@ -1,12 +1,25 @@
-# CrossV9 tuned for 6-node k3 cluster: 5×32GB + 1×64GB (224GB total).
-# Sized for stability during TB-scale benchmarks — no OOM crashes.
-# Replace image repositories and secret values before deploy.
+# CrossV9 tuned for the office k8s cluster: 6 nodes (1 control plane +
+# 5 workers), ~184 vCPU / ~218 GB RAM total, ~1 TB local m.2 per node.
+#
+# Rewritten 2026-06-10 to carry over everything learned on Clever Cloud:
+#   - BinaryVectorIndex is the search path (L1 bucket cache OFF).
+#   - Chunks on local NVMe via emptyDir (localChunks) — durability is
+#     R=2 peer replication, same model that survived the CC benchmarks.
+#   - Ephemeral-storage declared so kubelet evicts per-pod instead of
+#     tainting nodes (the failure that killed the 2026-06-10 CC run).
+#   - storeAsync=1, maxConcurrent=8, 64 MB windows, upload cap 200 GiB.
+#
+# Deploy:
+#   helm upgrade --install crossv9 . -f values.yaml -f values-k3-benchmark.yaml -n crossv9 --create-namespace
+#
+# Client (on the office LAN): point at the cross LoadBalancer
+#   192.168.50.70:5000 — Block size 64 MB, MaxConcurrentBlocks 16.
 
 # ── Longhorn (subchart) ──────────────────────────────────────────────────
-# We own storage in this cluster, so our chart installs and configures
-# Longhorn directly. Storage pool = every node (no disk labels required),
-# replica count = 3, UI exposed as NodePort. Disable this only if you've
-# pre-installed Longhorn through another channel.
+# Only used for the small control-plane PVCs now (etcd, controlcenter,
+# redis). Chunk data does NOT live on Longhorn anymore — it's on each
+# node's local m.2 via emptyDir (see agent.localChunks). Replica 3 on
+# 1 Gi/10 Gi/20 Gi volumes is cheap.
 longhorn:
   enabled: true
   namespaceOverride: "longhorn-system"
@@ -15,9 +28,6 @@ longhorn:
     defaultDataPath: "/var/lib/longhorn/"
     defaultReplicaCount: 3
     replicaAutoBalance: "best-effort"
-    # Optional: bump this if your nodes have <15% free space and Longhorn
-    # starts refusing to provision. Default 25 is fine for 6×i9 boxes.
-    # storageMinimalAvailablePercentage: 10
   persistence:
     defaultClass: true
     defaultClassReplicaCount: 3
@@ -31,16 +41,20 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    tag: "sha256:c4421be03ee07606a4804fc9e2bf3d749d2ee6e595dcebb74adc00603166e965"
+    # BinaryVectorIndex + no-temp-file segment merge.
+    # REPLACE with the build from agent commit 034250f before deploying —
+    # this tag (aa93045…) has the index but still the 3× merge disk spike.
+    tag: "sha256:aa93045616acb7474fc0cb7561f1d6e21bad0efc458caf5c81f8a730075e3218"
+    pullPolicy: Always
+  cross:
+    repository: "ghcr.io/sharkoomaster/crossv9-cross"
+    # Zero-copy serialization + parallel classify prefetch + maxConcurrent=8.
+    tag: "sha256:b456390268803eb153327eda53834a90d26c44c3ce630b4126ccb74ac7ceb1e9"
     pullPolicy: Always
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
     tag: "sha256:71eb0c6f48fcb06a65b68bbd311b89b2bc5e9df586985e7ffa8ab0f5d51eb34c"
     pullPolicy: IfNotPresent
-  cross:
-    repository: "ghcr.io/sharkoomaster/crossv9-cross"
-    tag: "sha256:4b85e179d1cf0a777fe574700d73f9bea0bb277cf41ab44bb42081a4dc5c4844"
-    pullPolicy: Always
   webinterface:
     repository: "ghcr.io/sharkoomaster/crossv9-webinterface"
     tag: "latest"
@@ -63,46 +77,36 @@ postgres:
   enabled: false
 
 externalPostgres:
-  # Matches running postgres pod env:
-  # POSTGRES_DB=yourdbname
-  # POSTGRES_USER=youruser
-  # POSTGRES_PASSWORD=yourpassword
   host: "postgres.postgres.svc.cluster.local"
   port: 5432
   user: "youruser"
   password: "yourpassword"
   database: "yourdbname"
 
+# In-chart Redis (routing/dedup tables). Small persistence volume on
+# Longhorn; flushed on every fresh-wipe anyway.
 redis:
-  enabled: false
+  enabled: true
   image: "redis:7-alpine"
   port: 6379
   servicePort: 6379
-  maxMemory: "30gb"
+  maxMemory: "8gb"
   maxMemoryPolicy: "allkeys-lru"
   persistence:
     enabled: true
-    storageClassName: "local-path"
-    size: "200Gi"
+    storageClassName: "longhorn"
+    size: "20Gi"
   resources:
     requests:
-      memory: "8Gi"
+      memory: "2Gi"
     limits:
-      memory: "16Gi"
+      memory: "10Gi"
 
 externalRedis:
   host: ""
   port: 6379
 
 # ── etcd: authoritative agent-membership registry ────────────────────────
-# Single-pod etcd that holds /agents/<podName> → IP entries with 10s leases.
-# Every agent registers on startup + heartbeats. Every cross pod watches the
-# /agents/ prefix and updates its RendezvousRouter atomically.
-#
-# This is the fix for cross-pod routing divergence (cross pods disagreeing
-# on which agent owns a bucket → wrong chunk bytes → INTEGRITY_DECOMPRESS).
-# Membership data is ~2 KB total, so a single pod with a tiny Longhorn PVC
-# is plenty.
 etcd:
   enabled: true
   image: "quay.io/coreos/etcd:v3.5.13"
@@ -118,29 +122,24 @@ etcd:
       cpu: "500m"
       memory: "512Mi"
 
-externalEtcd:
-  endpoint: ""
-
 agent:
-  # StatefulSet gives each agent a stable identity (crossv9-agent-0, -1, ...)
-  # and a per-pod Longhorn RWO volume that follows the pod across node
-  # reschedules. This is required for correctness — Rendezvous Hashing now
-  # routes by pod name (MY_POD_NAME), so chunks stored by agent-0 always
-  # resolve back to agent-0's volume regardless of which node hosts it.
-  #
-  # Previous DaemonSet+hostPath setup was the root cause of decompress
-  # corruption: hostPath data is tied to the node, but Rendezvous routing
-  # could land at a different agent after any node blip, returning the new
-  # agent's unrelated bytes at the same (BucketId, BucketKey) coordinates.
+  # StatefulSet: stable identity (crossv9-agent-0 …) because Rendezvous
+  # Hashing routes by pod name. 5 agents = 1 per worker node; the 16 Gi
+  # memory request prevents the scheduler from packing two agents onto
+  # one 32 GB node, so the fleet spreads without podAntiAffinity.
   workloadKind: StatefulSet
-  # Pick this to match (or exceed) your previous DaemonSet pod count so
-  # the hash ring stays roughly the same size. With 6 worker nodes the
-  # previous DaemonSet ran 6 pods; mirror that here.
-  replicaCount: 6
+  replicaCount: 5
+  replicationFactor: 2
+  writeQuorum: 2
+  vnodesPerAgent: 256
+  # Non-blocking store: ack when writes are queued instead of fsyncing the
+  # WAL per BatchStore. Safe: chunks are on local NVMe and every chunk is
+  # on 2 agents (R=2). The agent still drains synchronously under RocksDB
+  # write pressure.
+  storeAsync: "1"
   storageBackend: rocksdb
   rocksdb:
     path: "/data/chunks/rocksdb"
-  replicationFactor: 2  # Replicate to 2 other agents (3 total including self)
   s3:
     endpoint: "http://192.168.50.55:9000"
     bucket: "chunks"
@@ -148,85 +147,100 @@ agent:
     secretKey: "minioadmin"
     forcePathStyle: true
     useSsl: false
+
+  # ── BinaryVectorIndex — the search path ──────────────────────────────
+  # Off-heap quantized two-stage search: 8 B/vector RAM for sealed
+  # segments, sub-µs candidate scans, mmap-backed payloads on the local
+  # m.2. Replaces the L1 M_Bucket cache entirely (l1CacheEnabled=false):
+  # the L1 path was the eviction-cliff failure mode — RAM scaled linearly
+  # with corpus until searches fell off a cliff into RocksDB seeks.
+  binaryIndex:
+    enabled: "true"
+    segmentCapacity: "2000000"
+  l1CacheEnabled: "false"
+
   bucketCache:
-    # Demo tuning (2026-05-20): explicit 2 GiB L1 bucket cache per agent.
-    # Auto-detect (0) reads cgroup memory, which on these nodes lands at
-    # ~1.4 GiB → barely any L1. With 32–64 GiB physical RAM and agents
-    # idling at ~1.1 GiB used out of a 14 GiB limit, we have huge headroom.
-    # 2 GiB × 6 agents = 12 GiB cluster-wide bucket RAM → vector search
-    # runs as in-memory SIMD instead of falling through to the RocksDB
-    # iterator. Big win on warm runs.
-    maxGb: 2
-    evictionIntervalSec: 10  # Kept for API compat, background evictor uses watermarks now
-    highWaterPct: "0.70"     # Background eviction starts when usage > 70% of budget
-    lowWaterPct: "0.50"      # Background eviction stops when usage drops to 50% (20% headroom for bursts)
-    hardCeilingPct: "0.90"   # Emergency inline eviction at 90% — drains back to 50%
+    # Not on the search hot path anymore (binary index replaces it).
+    # Keep a small budget for residual callers.
+    maxGb: "2"
+    evictionIntervalSec: 10
+    highWaterPct: "0.90"
+    lowWaterPct: "0.75"
+    hardCeilingPct: "0.98"
   chunkCache:
-    # Demo tuning (2026-05-20): explicit 1 GiB MRU chunk cache per agent.
-    # Stops GetChunkByReferenceAsync from hitting RocksDB on the hot path
-    # (EncodeVerify, decoder base-chunk fetch, mosaic donor fetch). At
-    # 1 GiB × 6 agents = 6 GiB cluster-wide, trivial against 256 GiB.
-    sizeMb: 1024
-    ttlMinutes: 30  # Was 5 — too short to survive a multi-window run
+    # Byte-cache for dedup hits / base-chunk fetches. 6 GiB per agent —
+    # generous because StoreChunks/BatchGet chunk-byte I/O is the next
+    # bottleneck after the index fix.
+    sizeMb: 6144
+    ttlMinutes: 60
   laneIndex:
-    enabled: "false"           # Lane hash index for L2 global sub-chunk search
-    hashBits: "16"            # Mini-LSH bitstring width
-    searchMax: "50"           # Max results per lane query
+    enabled: "false"
+    hashBits: "16"
+    searchMax: "50"
+
+  # ── Chunks on local m.2 (emptyDir), NOT Longhorn ─────────────────────
+  # Every random read is a local NVMe op instead of a network round-trip.
+  # Durability = R=2 peer replication: a single-pod restart wipes that
+  # pod's slice and rebalance rebuilds it from the surviving peer. The
+  # BinaryVectorIndex rebuilds itself from RocksDB on startup.
+  localChunks:
+    enabled: true
+    sizeLimit: "700Gi"          # node has ~1 TB m.2
+  # persistence block kept for template compatibility — with
+  # localChunks.enabled=true no chunks PVC is rendered.
   persistence:
     enabled: true
-    # StatefulSet branch: each pod gets its own Longhorn RWO PVC via
-    # volumeClaimTemplates. The pod-pinned volume is what makes data
-    # survive a node reschedule.
     storageClassName: "longhorn"
-    size: "300Gi"
-    # hostPath is dead in StatefulSet mode — left here only for the legacy
-    # DaemonSet fallback path. Don't rely on it.
+    size: "60Gi"
     hostPath: "/var/lib/crossv9/chunks"
-  # Resource limits: the agent auto-sizes caches based on cgroup memory limit.
-  # With a 14Gi limit, GC.GetGCMemoryInfo().TotalAvailableMemoryBytes sees 14GB,
-  # so caches auto-size to that — NOT the full node RAM.
-  #
-  # Expected memory with 14Gi limit (post bounded-counter-cache):
-  #   RocksDB native block caches: 25% of 14GB = 3.5GB (bucket + chunk)
-  #   RocksDB memtables: ~512MB (native)
-  #   Bucket counter cache (managed, BOUNDED): ~200MB regardless of corpus size
-  #   Bucket cache L1 (managed, disabled by default): 0
-  #   Chunk cache (managed): 5% = 700MB
-  #   .NET runtime overhead: ~500MB
-  #   Total: ~5.5GB steady state. Spare headroom for ingest bursts.
+  cephBackup:
+    enabled: false
+
+  # Sized for 32 GB workers (~30 vCPU each). The emptyDir counts toward
+  # pod ephemeral-storage — declare it so kubelet evicts THIS pod
+  # predictably when disk fills, instead of tainting the whole node
+  # (the failure that killed the 2026-06-10 Clever Cloud run).
   resources:
     requests:
-      cpu: "2000m"
-      memory: "4Gi"
+      cpu: "4000m"
+      memory: "16Gi"
+      ephemeral-storage: "300Gi"
     limits:
-      memory: "14Gi"
-  # GC + counter-cache tuning. Defaults match what RocksDbBucketStorage and the agent
-  # template assume; expose them for ad-hoc tuning during benchmarks without rebuilds.
+      cpu: "24000m"
+      memory: "26Gi"
+      ephemeral-storage: "700Gi"
+
+  # GC: heapHardLimit is what the cache auto-sizer reads — NOT the cgroup
+  # limit. 16 GiB managed cap inside the 26 GiB cgroup leaves ~10 GiB for
+  # RocksDB block cache, memtables, mmap and glibc.
   gc:
-    conserveMemory: "5"          # Was 9 (aggressive) — caused liveness-probe stalls
-    heapHardLimit: "0x100000000" # 4 GiB managed heap cap. Cgroup is 14 Gi; the
-                                 # remaining 10 Gi is for RocksDB block cache,
-                                 # bloom filters, memtables and glibc arenas.
-    retainVm: "1"                # Keep retired segments — pairs with the 1-min
-                                 # Forced LOH timer to cap frag at ~20 %.
-    lohThreshold: "262144"       # 256 KB. Several per-batch arrays sit in the
-                                 # 85 KB–256 KB band; raising the threshold
-                                 # routes them through Gen0/1 where they compact.
+    conserveMemory: "5"
+    heapHardLimit: "0x400000000" # 16 GiB
+    retainVm: "1"
+    lohThreshold: "262144"
   malloc:
-    arenaMax: "2"                # Single biggest RSS-stability win on agent:
-                                 # caps glibc arenas (default ≈8 × cores) so
-                                 # RocksDB's native heap can't sprawl uncapped.
+    arenaMax: "2"
   counterCache:
-    capacity: "1000000"          # ~150–200 MB managed; bounded regardless of total buckets
-    shards: "64"                 # 64 shards × ~16k entries each → low contention
+    capacity: "1000000"
+    shards: "64"
   livenessProbe:
-    initialDelaySeconds: 60      # Allow constructor + first compaction to complete
+    initialDelaySeconds: 60
     periodSeconds: 30
     timeoutSeconds: 10
-    failureThreshold: 6          # Restart only after ~3 minutes of unresponsiveness
+    failureThreshold: 6
+
+  pdb:
+    enabled: true
+  antiEntropyEnabled: "false"
+  antiEntropyAutoRepair: "false"
+  # Fixed 5-agent fleet — no HPA, no drain choreography needed.
+  hpa:
+    enabled: false
+  retirement:
+    enabled: false
 
 gateway:
-  replicaCount: 2
+  replicaCount: 3
   searchTimeoutSec: 30
   storeTimeoutSec: 45
   streamConcurrency: 100
@@ -236,104 +250,85 @@ gateway:
       memory: "2Gi"
     limits:
       cpu: "4000m"
+      memory: "4Gi"
+  hpa:
+    enabled: false
+  pdb:
+    enabled: true
+
+gatewayCoordinator:
+  enabled: true
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
 
 cross:
-  replicaCount: 2
-  # Demo tuning (2026-05-20): bump windowed mode to 64 MB blocks so each
-  # search-store-encode-store roundtrip carries 16× more data. The 4 MB
-  # setting was a stability ceiling from the bug-hunt; with EncodeVerify +
-  # the RocksDbWriteBatcher flush race fix + ghost-record healing landed,
-  # there's no reason to throttle window size. Each cross pod has 8 GiB
-  # heap; worst case 4 windows × 64 MB = 256 MB in flight per pod.
+  replicaCount: 3
   windowedThresholdMB: 64
   windowSizeMB: 64
-  # ── Integrity smoketest ──
-  # Compress → immediate in-process decompress → byte-diff against original.
-  # Indispensable during the missing-base-chunk hunt; with all the fixes
-  # landed it's pure overhead (literally doubles compress wall time). Turn
-  # back on for the next major change. Off for tomorrow's demo.
   integrityDecompressSmoketest: false
-  maxUploadBytes: "107374182400"  # 100 GiB max upload (windowed handles RAM)
-  # Demo tuning (2026-05-20): each cross pod has an 8000m CPU limit and
-  # was only chewing 10–17m at idle in the live cluster — pure CPU floor.
-  # 4 concurrent windows × 2 pods = 8 windows in flight, which matches the
-  # client's MaxConcurrentBlocks=8 default exactly.
-  maxConcurrent: 4
+  # 133 GB benchmark file must fit under this cap.
+  maxUploadBytes: "214748364800"  # 200 GiB
+  # 8 concurrent windows per pod × 3 pods = 24 in flight — pairs with
+  # client MaxConcurrentBlocks=16 leaving headroom for queueing.
+  maxConcurrent: 8
   pipelineParallelism: 4
-  searchTopK: 10                  # Top-K candidates from L1 search (multi-reference diagnostics)
+  searchTopK: 10
   gc:
-    conserveMemory: "5"           # Was 9 — too aggressive, caused GC thrash on 64 MB blocks
-    heapHardLimit: "0x140000000"  # 5 GB managed heap cap; cross.resources.limits.memory = 8 Gi
-    retainVm: "1"                 # Keep retired Gen2 segments so the next file
-                                  # compress doesn't re-VirtualAlloc them.
-    lohThreshold: "262144"        # 256 KB — most per-block arrays in the
-                                  # compression pipeline now compact for free.
+    conserveMemory: "5"
+    heapHardLimit: "0x140000000"  # 5 GiB managed; cgroup limit 8 Gi
+    retainVm: "1"
+    lohThreshold: "262144"
   malloc:
-    arenaMax: "2"                 # Cap glibc arenas. Cross is .NET-only on the
-                                  # hot path but capping prevents the bloat
-                                  # failure mode we already cured on agent.
-  # Per-agent RPC throttle + circuit breaker. The soft timeout is what catches
-  # "agent slow but not erroring" — without it, a wedged-but-alive agent could
-  # silently hold throttle slots forever (the failure mode that came back
-  # today after yesterday's deadline removal).
+    arenaMax: "2"
   agentThrottle:
-    # Demo tuning (2026-05-20): 6 in-flight per agent (was 4). With 6 agents
-    # idling at <10m CPU and 1.1 GiB RAM in the live cluster, the throttle
-    # was an artificial ceiling well below what the agents can actually
-    # serve. Healthy BatchGet stays in the 10–400 ms band so the breaker
-    # behaviour is unchanged.
     maxInflight: "6"
     maxAttempts: "5"
     breakerFailureThreshold: "5"
     breakerCooldownSec: "30"
-    softTimeoutSec: "180"         # 3 minutes per RPC. Healthy BatchGet is
-                                  # ~10–400 ms so this never trips real work,
-                                  # but turns a wedged call into a breaker
-                                  # trip within 3 minutes.
+    softTimeoutSec: "180"
   mosaicDedup:
-    enabled: "false"          # Level 2 Mosaic Dedup (set "true" to enable)
-    entropyThreshold: "4.0"   # Shannon entropy threshold (bits/byte) for L2 trigger
-    topK: "10"                # Top-K candidates from agents for mosaic assembly
+    enabled: "false"
+    entropyThreshold: "4.0"
+    topK: "10"
   laneSearch:
-    enabled: "false"          # Global lane search for L2 mosaic (requires agent laneIndex)
-    hashBits: "16"            # Must match agent laneIndex.hashBits
-    searchMax: "50"           # Max results per lane query
+    enabled: "false"
+    hashBits: "16"
+    searchMax: "50"
   ccfStore:
-    enabled: "false"          # Cluster-stored CCF mode disabled (clients receive CCFs back directly)
-    path: "/data/ccf-store"   # Mount path for CCF storage PVC (unused while disabled)
-    backgroundServicesDisabled: "true"  # Cross pods serve requests only (optimizer runs in dedicated pod)
-    packThreshold: "100"      # Pack CCFs when this many unpacked CCFs accumulate
-    packIntervalSec: "30"     # Optimizer check interval (30s for fast dict training during benchmarks)
+    enabled: "false"
+    path: "/data/ccf-store"
+    backgroundServicesDisabled: "true"
+    packThreshold: "100"
+    packIntervalSec: "30"
     globalCompaction:
-      enabled: "true"               # Repack unpacked + selected source packs each cycle (budgeted)
-      maxSourcePacksPerCycle: "4"   # More packs per cycle for faster convergence
-      maxReadBytesPerCycle: "1073741824"  # 1 GiB read budget per cycle
-      maxDurationSec: "90"          # Longer cycles for more throughput
-      maxWorkingSetMb: "0"          # Auto-detect: 85% of container memory (48Gi limit → ~40GB ceiling)
-      optimizerParallelism: "0"     # 0 = auto (half of CPU cores, max 8)
+      enabled: "true"
+      maxSourcePacksPerCycle: "4"
+      maxReadBytesPerCycle: "1073741824"
+      maxDurationSec: "90"
+      maxWorkingSetMb: "0"
+      optimizerParallelism: "0"
     persistence:
-      enabled: false                # PVC not needed when ccfStore is disabled
+      enabled: false
       storageClassName: "longhorn"
       size: "100Gi"
   service:
     type: LoadBalancer
     grpcPort: 5000
     httpPort: 5001
-    # Pinned MetalLB-assigned IP so the router's port-forward target is stable
-    # across redeploys / full namespace tear-downs. Without this MetalLB picks
-    # the next free IP from its pool every fresh install, breaking the router
-    # config. Make sure this IP is inside the MetalLB pool range and not in
-    # use by another service in the same pool.
+    # Pinned MetalLB IP so the router port-forward target survives
+    # redeploys. Must be inside the MetalLB pool and unused elsewhere.
     loadBalancerIP: "192.168.50.70"
     externalTrafficPolicy: Cluster
     annotations: {}
-  # Memory limit for cross was previously absent — managed heap was capped at 5 GB by
-  # DOTNET_GCHeapHardLimit but native memory (gRPC buffers, monolithic temp-file reads,
-  # Kestrel) could grow without bound, OOM-killing the node. With windowedThresholdMB=16
-  # the worst case per request is roughly: (window 16 MB) × (maxConcurrent 2) × overhead
-  # for queueing/pipelining ≈ 1–2 GB native + 5 GB managed. 8 GB cgroup limit gives
-  # headroom for that plus gRPC connection buffers and crucially makes the cross pod
-  # OOM-safe before its node does.
+  hpa:
+    enabled: false
+  pdb:
+    enabled: true
   resources:
     requests:
       cpu: "2000m"
@@ -342,8 +337,11 @@ cross:
       cpu: "8000m"
       memory: "8Gi"
 
+# ccfStore is disabled, so the optimizer would just idle while its 16 Gi
+# request blocks an agent from the techpology2 node. Off until ccfStore
+# comes back.
 ccfOptimizer:
-  enabled: true
+  enabled: false
   replicaCount: 1
   nodeSelector:
     kubernetes.io/hostname: "techpology2"
@@ -370,9 +368,8 @@ webinterface:
   ingress:
     enabled: false
 
-# Internal command-center: gzip NDJSON journal on a 10Gi PVC, 7-day retention,
-# UI exposed via MetalLB LoadBalancer for the operator. Sized small on purpose
-# (memory budget targets ≤ 200 Mi at idle).
+# Journal (perf_sample + job_event NDJSON) — this is what we download
+# after every run for analysis. Keep it on.
 controlcenter:
   enabled: true
   jobEventsEnabled: true
