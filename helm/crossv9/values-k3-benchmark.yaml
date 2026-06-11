@@ -41,10 +41,9 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    # BinaryVectorIndex + no-temp-file segment merge.
-    # REPLACE with the build from agent commit 034250f before deploying —
-    # this tag (aa93045…) has the index but still the 3× merge disk spike.
-    tag: "sha256:aa93045616acb7474fc0cb7561f1d6e21bad0efc458caf5c81f8a730075e3218"
+    # agent@333a7f5: BinaryVectorIndex + no-temp-file segment merge +
+    # write-batcher pending read-through (ghost/heal storm fix).
+    tag: "sha256:15048b5e12b8a49b110c5a4f95c4d7413a309069720db495e291e92aff43ba14"
     pullPolicy: Always
   cross:
     repository: "ghcr.io/sharkoomaster/crossv9-cross"
