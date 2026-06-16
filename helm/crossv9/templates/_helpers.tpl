@@ -84,7 +84,7 @@ Argument: a dict with keys
   value: {{ (default "true" $root.Values.gateway.rebalanceCoordinatorEnabled) | quote }}
   {{- end }}
 - name: CHUNK_SIZE
-  value: {{ $root.Values.chunkSize | default 5120 | quote }}
+  value: {{ $root.Values.chunkSize | default 4096 | quote }}
 - name: GATEWAY_SEARCH_TIMEOUT_SEC
   value: {{ $root.Values.gateway.searchTimeoutSec | quote }}
 - name: GATEWAY_STORE_TIMEOUT_SEC

@@ -41,14 +41,15 @@ imagePullSecrets: []
 images:
   agent:
     repository: "ghcr.io/sharkoomaster/crossv9-agent"
-    # agent@333a7f5: BinaryVectorIndex + no-temp-file segment merge +
-    # write-batcher pending read-through (ghost/heal storm fix).
-    tag: "sha256:15048b5e12b8a49b110c5a4f95c4d7413a309069720db495e291e92aff43ba14"
+    # BinaryVectorIndex + no-temp-file segment merge + write-batcher pending
+    # read-through (ghost/heal storm fix) + 4 KiB chunk default.
+    tag: "sha256:63632b5a7befc189ad42f2de036f8056e920bd025b1bba3924e432a464e08822"
     pullPolicy: Always
   cross:
     repository: "ghcr.io/sharkoomaster/crossv9-cross"
-    # Zero-copy serialization + parallel classify prefetch + maxConcurrent=8.
-    tag: "sha256:b456390268803eb153327eda53834a90d26c44c3ce630b4126ccb74ac7ceb1e9"
+    # v7.1.0 entropy-coded error section (stream-separated + zstd, 1-byte
+    # mod-256 deltas; ~3-4x smaller error payload) + 4 KiB chunk default.
+    tag: "sha256:a773a625ded6daf9ac11a29203c325c2f66153392815b4472824bcfecb8a10ad"
     pullPolicy: Always
   gateway:
     repository: "ghcr.io/sharkoomaster/crossv9-gateway"
@@ -67,7 +68,7 @@ images:
     tag: "sha256:3cceb01db546d68172f4c037c2a4b4f05bb05ec980a5a1a1db77a0040fb3ce2e"
     pullPolicy: Always
 
-chunkSize: 1024  # Bytes per chunk (used by agent, cross, gateway)
+chunkSize: 4096  # Bytes per chunk (used by agent, cross, gateway). 4 KiB: ~4x fewer chunks/GB than 1 KiB → ~4x less search/store/index/RPC load, traded against coarser match granularity.
 
 mode:
   crossMode: "local"

@@ -396,7 +396,7 @@ spec:
             - name: AGENT_HEADLESS_SVC
               value: "{{ include "crossv9.fullname" . }}-agent-headless.{{ .Release.Namespace }}.svc.cluster.local"
             - name: CHUNK_SIZE
-              value: {{ .Values.chunkSize | default 5120 | quote }}
+              value: {{ .Values.chunkSize | default 4096 | quote }}
             {{- if .Values.agent.laneIndex }}
             {{- if .Values.agent.laneIndex.enabled }}
             - name: ENABLE_LANE_INDEX

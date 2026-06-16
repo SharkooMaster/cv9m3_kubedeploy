@@ -65,7 +65,7 @@ spec:
             - name: AGENTS_LOADBALANCER
               value: {{ printf "%s-agent-headless" (include "crossv9.fullname" .) | quote }}
             - name: CHUNK_SIZE
-              value: {{ .Values.chunkSize | default 5120 | quote }}
+              value: {{ .Values.chunkSize | default 4096 | quote }}
             - name: ENABLE_CCF_STORE
               value: {{ .Values.cross.ccfStore.enabled | quote }}
             - name: CCF_BACKGROUND_SERVICES_DISABLED

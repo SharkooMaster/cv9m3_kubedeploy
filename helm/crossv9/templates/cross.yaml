@@ -176,7 +176,7 @@ spec:
               value: "true"
             {{- end }}
             - name: CHUNK_SIZE
-              value: {{ .Values.chunkSize | default 5120 | quote }}
+              value: {{ .Values.chunkSize | default 4096 | quote }}
             - name: CROSS_WINDOWED_THRESHOLD_MB
               value: {{ .Values.cross.windowedThresholdMB | default 256 | quote }}
             - name: CROSS_WINDOW_SIZE_MB
